@@ -28,7 +28,16 @@
     "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
     { maxZoom: 20, attribution: "Tiles &copy; Esri" }
   );
-  L.control.layers({ "OpenStreetMap": osm, "Aerial (Esri)": esriImagery }).addTo(map);
+  const oakvilleAddresses = L.tileLayer(
+    "https://skfd.github.io/oakville-address-layer/tiles/raster/{z}/{x}/{y}.png",
+    { maxZoom: 20, attribution: "Oakville address layer by skfd" }
+  );
+  L.control
+    .layers(
+      { "OpenStreetMap": osm, "Aerial (Esri)": esriImagery },
+      { "Oakville addresses (skfd)": oakvilleAddresses }
+    )
+    .addTo(map);
 
   const fileInput = document.getElementById("file-input");
   const fileNameEl = document.getElementById("file-name");

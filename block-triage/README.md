@@ -54,6 +54,14 @@ OpenStreetMap tiles and Esri World Imagery (aerial photos) — the aerial
 view is often the fastest way to visually confirm "yep, that's a traffic
 island, there's no building going there."
 
+It also has an **Oakville addresses (skfd)** overlay checkbox — an OSM
+community address layer for Oakville
+(https://skfd.github.io/oakville-address-layer/), shown as dots (with
+street name labels at some zoom levels) for known addresses. It's off by
+default; turn it on to see whether an area actually has addresses nearby
+before deciding to exclude it. (This overlay is specific to Oakville; if
+you triage a different town's blocks, just ignore or remove it.)
+
 ## Why compactness, not just area
 
 Some artifacts (thin slivers between the two carriageways of a divided
