@@ -8,6 +8,12 @@
     kept: "#43a047",
   };
 
+  // Written into each kept feature's properties on export so a re-imported
+  // (round-tripped) file can recognize prior decisions without relying on
+  // localStorage. Namespaced and underscore-prefixed to avoid colliding with
+  // anything MapRoulette itself reads out of task GeoJSON properties.
+  const STATUS_PROPERTY = "_blockTriageStatus";
+
   /** @type {Map<string, {id:string, idx:number, feature:object, layer:L.Layer, area:number, compactness:number, status:string}>} */
   let entries = new Map();
   let orderedIds = []; // insertion order == original feature order
@@ -180,6 +186,7 @@
         console.warn("Could not compute metrics for feature", idx, err);
       }
       const compactness = perimeter > 0 ? Math.min(1, (4 * Math.PI * area) / (perimeter * perimeter)) : 0;
+      const embeddedStatus = feature.properties && feature.properties[STATUS_PROPERTY] === "kept" ? "kept" : "unreviewed";
 
       entries.set(id, {
         id,
@@ -188,7 +195,7 @@
         layer: null,
         area,
         compactness,
-        status: marks[id] || "unreviewed",
+        status: marks[id] || embeddedStatus,
       });
       orderedIds.push(id);
     });
@@ -434,7 +441,14 @@
   function exportFiltered() {
     const features = [];
     entries.forEach((e) => {
-      if (e.status !== "excluded") features.push(e.feature);
+      if (e.status === "excluded") return;
+      const properties = Object.assign({}, e.feature.properties);
+      if (e.status === "kept") {
+        properties[STATUS_PROPERTY] = "kept";
+      } else {
+        delete properties[STATUS_PROPERTY];
+      }
+      features.push(Object.assign({}, e.feature, { properties }));
     });
     const out = Object.assign({}, raw, { features });
     const blob = new Blob([JSON.stringify(out)], { type: "application/geo+json" });

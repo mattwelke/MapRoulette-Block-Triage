@@ -47,6 +47,18 @@ Your marks are saved to the browser's `localStorage` as you go (keyed to
 the loaded file's name/size/feature count), so a refresh won't lose your
 progress. Marks for one file don't affect another.
 
+**Kept** decisions are also written into the exported file itself, as a
+`_blockTriageStatus: "kept"` property on that feature (excluded features
+are simply dropped, so they don't need a marker). If you later re-open
+that exported file — a different machine, a cleared browser, or just a
+new session — it's recognized as already-kept without needing the
+original `localStorage` data. The property name is deliberately
+namespaced/underscore-prefixed so it reads as tool-internal metadata; it
+shouldn't affect how MapRoulette itself processes the file (MapRoulette
+tasks only care about a feature's geometry and whichever specific
+properties your challenge template references), but it's worth a quick
+check the first time you upload a file carrying it, just to be sure.
+
 ## Basemaps
 
 The layer switcher (top-right of the map) toggles between standard
