@@ -24,6 +24,10 @@
   let quickExcludeMode = localStorage.getItem("block-triage:quickExcludeMode") === "true";
   let undoStack = [];
   let redoStack = [];
+  let newFeatureCounter = 0;
+  let addedAreaCounter = 0;
+  /** @type {null | {type: "split"|"add", targetId?: string, points: [number,number][], previewLayer: L.Layer|null, vertexMarkers: L.Layer[]}} */
+  let drawState = null;
 
   const map = L.map("map", { preferCanvas: true }).setView([43.45, -79.68], 12);
   const osm = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
@@ -56,6 +60,11 @@
   const appEl = document.getElementById("app");
   const undoBtn = document.getElementById("undo-btn");
   const redoBtn = document.getElementById("redo-btn");
+  const addAreaBtn = document.getElementById("add-area-btn");
+  const drawStatusEl = document.getElementById("draw-status");
+  const drawStatusText = document.getElementById("draw-status-text");
+  const drawFinishBtn = document.getElementById("draw-finish-btn");
+  const drawCancelBtn = document.getElementById("draw-cancel-btn");
 
   areaThresholdInput.value = thresholds.area;
   compactnessThresholdInput.value = thresholds.compactness;
@@ -76,6 +85,12 @@
   exportBtn.addEventListener("click", exportFiltered);
   undoBtn.addEventListener("click", undo);
   redoBtn.addEventListener("click", redo);
+  addAreaBtn.addEventListener("click", () => {
+    if (drawState) cancelDrawing();
+    else startDrawing("add", null);
+  });
+  drawFinishBtn.addEventListener("click", finishDrawing);
+  drawCancelBtn.addEventListener("click", cancelDrawing);
 
   areaThresholdInput.addEventListener("input", () => {
     thresholds.area = Number(areaThresholdInput.value) || 0;
@@ -94,6 +109,17 @@
 
   document.addEventListener("keydown", (e) => {
     if (e.target.tagName === "INPUT") return;
+
+    if (drawState) {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        finishDrawing();
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        cancelDrawing();
+      }
+      return;
+    }
 
     const key = e.key.toLowerCase();
     if ((e.ctrlKey || e.metaKey) && key === "z") {
@@ -159,33 +185,28 @@
       renderMapLayers();
       recomputeFlagsAndRender();
       exportBtn.disabled = false;
+      addAreaBtn.disabled = false;
     };
     reader.readAsText(file);
   }
 
   function buildEntries(parsed) {
+    if (drawState) cancelDrawing();
     entries.forEach((e) => map.removeLayer(e.layer));
     entries = new Map();
     orderedIds = [];
     selectedId = null;
     undoStack = [];
     redoStack = [];
+    newFeatureCounter = 0;
+    addedAreaCounter = 0;
     updateUndoRedoButtons();
 
     const marks = loadMarks();
 
     parsed.features.forEach((feature, idx) => {
       const id = hashString(JSON.stringify(feature.geometry));
-      let area = 0;
-      let perimeter = 0;
-      try {
-        area = turf.area(feature);
-        const line = turf.polygonToLine(feature);
-        perimeter = turf.length(line, { units: "kilometers" }) * 1000;
-      } catch (err) {
-        console.warn("Could not compute metrics for feature", idx, err);
-      }
-      const compactness = perimeter > 0 ? Math.min(1, (4 * Math.PI * area) / (perimeter * perimeter)) : 0;
+      const { area, compactness } = computeMetrics(feature);
       const embeddedStatus = feature.properties && feature.properties[STATUS_PROPERTY] === "kept" ? "kept" : "unreviewed";
 
       entries.set(id, {
@@ -199,6 +220,20 @@
       });
       orderedIds.push(id);
     });
+  }
+
+  function computeMetrics(feature) {
+    let area = 0;
+    let perimeter = 0;
+    try {
+      area = turf.area(feature);
+      const line = turf.polygonToLine(feature);
+      perimeter = turf.length(line, { units: "kilometers" }) * 1000;
+    } catch (err) {
+      console.warn("Could not compute metrics for feature", err);
+    }
+    const compactness = perimeter > 0 ? Math.min(1, (4 * Math.PI * area) / (perimeter * perimeter)) : 0;
+    return { area, compactness };
   }
 
   function marksStorageKey() {
@@ -243,18 +278,8 @@
   function renderMapLayers() {
     const bounds = [];
     entries.forEach((entry) => {
-      const layer = L.geoJSON(entry.feature, { style: () => styleFor(entry) });
-      layer.on("click", () => {
-        selectFeature(entry.id);
-        if (quickExcludeMode) {
-          setStatus(entry.id, entry.status === "excluded" ? "unreviewed" : "excluded");
-        } else {
-          openPopup(entry);
-        }
-      });
-      layer.addTo(map);
-      entry.layer = layer;
-      const b = layer.getBounds();
+      attachLayer(entry);
+      const b = entry.layer.getBounds();
       if (b.isValid()) bounds.push(b);
     });
     if (bounds.length) {
@@ -262,6 +287,38 @@
       bounds.forEach((b) => (all = all.extend(b)));
       map.fitBounds(all, { padding: [20, 20] });
     }
+  }
+
+  function attachLayer(entry) {
+    const layer = L.geoJSON(entry.feature, { style: () => styleFor(entry) });
+    // While drawing (split-line or new-area), clicks/moves that land on top of
+    // an existing polygon must still reach the drawing controller instead of
+    // being consumed here as a selection/exclude click — a cut line very often
+    // needs to cross directly over other areas.
+    layer.on("click", (e) => {
+      if (drawState) {
+        L.DomEvent.stopPropagation(e);
+        onDrawMapClick(e);
+        return;
+      }
+      selectFeature(entry.id);
+      if (quickExcludeMode) {
+        setStatus(entry.id, entry.status === "excluded" ? "unreviewed" : "excluded");
+      } else {
+        openPopup(entry);
+      }
+    });
+    layer.on("dblclick", (e) => {
+      if (drawState) {
+        L.DomEvent.stopPropagation(e);
+        finishDrawing();
+      }
+    });
+    layer.on("mousemove", (e) => {
+      if (drawState) onDrawMouseMove(e);
+    });
+    layer.addTo(map);
+    entry.layer = layer;
   }
 
   function openPopup(entry) {
@@ -276,12 +333,19 @@
         <button data-action="kept">Keep</button>
         <button data-action="unreviewed">Reset</button>
       </div>
+      <div class="popup-actions">
+        <button data-split>Split&hellip;</button>
+      </div>
     `;
     div.querySelectorAll("button[data-action]").forEach((btn) => {
       btn.addEventListener("click", () => {
         setStatus(entry.id, btn.dataset.action);
         div.querySelector("[data-status]").textContent = entry.status;
       });
+    });
+    div.querySelector("[data-split]").addEventListener("click", () => {
+      map.closePopup();
+      startDrawing("split", entry.id);
     });
     const center = entry.layer.getBounds().getCenter();
     L.popup().setLatLng(center).setContent(div).openOn(map);
@@ -298,7 +362,7 @@
     renderList();
 
     if (!opts || !opts.skipHistory) {
-      undoStack.push({ id, prevStatus, newStatus: status });
+      undoStack.push({ type: "status", id, prevStatus, newStatus: status });
       redoStack = [];
       updateUndoRedoButtons();
     }
@@ -307,19 +371,27 @@
   function undo() {
     const action = undoStack.pop();
     if (!action) return;
-    setStatus(action.id, action.prevStatus, { skipHistory: true });
+    if (action.type === "split") undoSplit(action);
+    else if (action.type === "add") undoAdd(action);
+    else {
+      setStatus(action.id, action.prevStatus, { skipHistory: true });
+      focusOnAction(action.id);
+    }
     redoStack.push(action);
     updateUndoRedoButtons();
-    focusOnAction(action.id);
   }
 
   function redo() {
     const action = redoStack.pop();
     if (!action) return;
-    setStatus(action.id, action.newStatus, { skipHistory: true });
+    if (action.type === "split") redoSplit(action);
+    else if (action.type === "add") redoAdd(action);
+    else {
+      setStatus(action.id, action.newStatus, { skipHistory: true });
+      focusOnAction(action.id);
+    }
     undoStack.push(action);
     updateUndoRedoButtons();
-    focusOnAction(action.id);
   }
 
   function focusOnAction(id) {
@@ -332,6 +404,258 @@
   function updateUndoRedoButtons() {
     undoBtn.disabled = undoStack.length === 0;
     redoBtn.disabled = redoStack.length === 0;
+  }
+
+  function removeEntry(id) {
+    const entry = entries.get(id);
+    if (!entry) return;
+    if (entry.layer) map.removeLayer(entry.layer);
+    entries.delete(id);
+    orderedIds = orderedIds.filter((oid) => oid !== id);
+    if (selectedId === id) selectedId = null;
+  }
+
+  function snapshotEntry(entry) {
+    return {
+      id: entry.id,
+      idx: entry.idx,
+      feature: entry.feature,
+      area: entry.area,
+      compactness: entry.compactness,
+      status: entry.status,
+    };
+  }
+
+  function restoreEntryFromSnapshot(snapshot) {
+    const entry = Object.assign({}, snapshot, { layer: null });
+    entry.flagged = entry.area < thresholds.area || entry.compactness < thresholds.compactness;
+    entries.set(entry.id, entry);
+    orderedIds.push(entry.id);
+    attachLayer(entry);
+    return entry;
+  }
+
+  // --- Split ---
+
+  function doSplit(targetId, points) {
+    const entry = entries.get(targetId);
+    if (!entry) return;
+
+    let diffResult;
+    try {
+      const cutLine = turf.lineString(points);
+      const knife = turf.buffer(cutLine, 0.0005, { units: "kilometers" }); // ~1m wide knife
+      diffResult = turf.difference(turf.featureCollection([entry.feature, knife]));
+    } catch (err) {
+      alert("Could not compute the split: " + err.message);
+      return;
+    }
+    if (!diffResult) {
+      alert("That cut line doesn't appear to cross this area.");
+      return;
+    }
+    const parts = turf.flatten(diffResult).features.filter((f) => f.geometry && f.geometry.type === "Polygon");
+    if (parts.length < 2) {
+      alert(
+        "That cut didn't fully divide the area into two separate pieces. Try drawing the line all the way across it, past both edges."
+      );
+      return;
+    }
+
+    const originalSnapshot = snapshotEntry(entry);
+    removeEntry(targetId);
+
+    const newSnapshots = parts.map((part, i) => {
+      const { area, compactness } = computeMetrics(part);
+      return {
+        id: hashString(JSON.stringify(part.geometry) + ":" + newFeatureCounter++),
+        idx: `${originalSnapshot.idx}${String.fromCharCode(97 + i)}`,
+        feature: part,
+        area,
+        compactness,
+        status: "unreviewed",
+      };
+    });
+    newSnapshots.forEach((snap) => restoreEntryFromSnapshot(snap));
+
+    undoStack.push({ type: "split", original: originalSnapshot, newSnapshots });
+    redoStack = [];
+    updateUndoRedoButtons();
+    saveMarks();
+    updateStats();
+    renderList();
+
+    selectFeature(newSnapshots[0].id);
+    panTo(entries.get(newSnapshots[0].id));
+  }
+
+  function undoSplit(action) {
+    action.newSnapshots.forEach((snap) => removeEntry(snap.id));
+    restoreEntryFromSnapshot(action.original);
+    saveMarks();
+    updateStats();
+    renderList();
+    selectFeature(action.original.id);
+    panTo(entries.get(action.original.id));
+  }
+
+  function redoSplit(action) {
+    removeEntry(action.original.id);
+    action.newSnapshots.forEach((snap) => restoreEntryFromSnapshot(snap));
+    saveMarks();
+    updateStats();
+    renderList();
+    selectFeature(action.newSnapshots[0].id);
+    panTo(entries.get(action.newSnapshots[0].id));
+  }
+
+  // --- Add new area ---
+
+  function doAddArea(points) {
+    const ring = points.slice();
+    const first = ring[0];
+    const last = ring[ring.length - 1];
+    if (first[0] !== last[0] || first[1] !== last[1]) ring.push(first);
+
+    let feature;
+    try {
+      feature = turf.polygon([ring]);
+    } catch (err) {
+      alert("Could not create an area from those points: " + err.message);
+      return;
+    }
+    const { area, compactness } = computeMetrics(feature);
+    const snapshot = {
+      id: hashString(JSON.stringify(feature.geometry) + ":" + newFeatureCounter++),
+      idx: `new-${++addedAreaCounter}`,
+      feature,
+      area,
+      compactness,
+      status: "unreviewed",
+    };
+    restoreEntryFromSnapshot(snapshot);
+
+    undoStack.push({ type: "add", snapshot });
+    redoStack = [];
+    updateUndoRedoButtons();
+    saveMarks();
+    updateStats();
+    renderList();
+    selectFeature(snapshot.id);
+  }
+
+  function undoAdd(action) {
+    removeEntry(action.snapshot.id);
+    saveMarks();
+    updateStats();
+    renderList();
+  }
+
+  function redoAdd(action) {
+    restoreEntryFromSnapshot(action.snapshot);
+    saveMarks();
+    updateStats();
+    renderList();
+    selectFeature(action.snapshot.id);
+  }
+
+  // --- Drawing controller (shared by split-line and add-new-area) ---
+
+  function startDrawing(type, targetId) {
+    if (drawState) cancelDrawing();
+    drawState = { type, targetId, points: [], previewLayer: null, vertexMarkers: [] };
+    map.doubleClickZoom.disable();
+    appEl.classList.add("drawing-active");
+    drawStatusEl.hidden = false;
+    updateDrawStatusText();
+    map.on("click", onDrawMapClick);
+    map.on("mousemove", onDrawMouseMove);
+    map.on("dblclick", finishDrawing);
+    if (type === "add") addAreaBtn.textContent = "Cancel adding…";
+  }
+
+  function updateDrawStatusText() {
+    if (!drawState) return;
+    const need = drawState.type === "split" ? 2 : 3;
+    const verb = drawState.type === "split" ? "Draw a line across the area to split it" : "Draw the new area's outline";
+    drawStatusText.textContent = `${verb} — click to add points (${drawState.points.length} so far, need at least ${need}).`;
+  }
+
+  function onDrawMapClick(e) {
+    if (!drawState) return;
+    drawState.points.push([e.latlng.lng, e.latlng.lat]);
+    redrawDrawPreview();
+    updateDrawStatusText();
+  }
+
+  function onDrawMouseMove(e) {
+    if (!drawState || drawState.points.length === 0) return;
+    redrawDrawPreview(e.latlng);
+  }
+
+  function redrawDrawPreview(cursorLatLng) {
+    if (drawState.previewLayer) {
+      map.removeLayer(drawState.previewLayer);
+      drawState.previewLayer = null;
+    }
+    const latlngs = drawState.points.map(([lng, lat]) => [lat, lng]);
+    if (cursorLatLng) latlngs.push([cursorLatLng.lat, cursorLatLng.lng]);
+    // interactive: false so these purely-visual overlays never swallow the
+    // clicks/moves that the drawing controller needs to receive itself.
+    if (drawState.type === "add" && latlngs.length >= 3) {
+      drawState.previewLayer = L.polygon(latlngs, {
+        color: "#333",
+        weight: 2,
+        dashArray: "4 4",
+        fillOpacity: 0.1,
+        interactive: false,
+      }).addTo(map);
+    } else if (latlngs.length >= 2) {
+      drawState.previewLayer = L.polyline(latlngs, {
+        color: "#333",
+        weight: 2,
+        dashArray: "4 4",
+        interactive: false,
+      }).addTo(map);
+    }
+    drawState.vertexMarkers.forEach((m) => map.removeLayer(m));
+    drawState.vertexMarkers = drawState.points.map(([lng, lat]) =>
+      L.circleMarker([lat, lng], {
+        radius: 4,
+        color: "#333",
+        weight: 1,
+        fillColor: "#fff",
+        fillOpacity: 1,
+        interactive: false,
+      }).addTo(map)
+    );
+  }
+
+  function finishDrawing() {
+    if (!drawState) return;
+    const minPoints = drawState.type === "split" ? 2 : 3;
+    if (drawState.points.length < minPoints) {
+      alert(`Add at least ${minPoints} points before finishing.`);
+      return;
+    }
+    const { type, targetId, points } = drawState;
+    cancelDrawing();
+    if (type === "split") doSplit(targetId, points);
+    else doAddArea(points);
+  }
+
+  function cancelDrawing() {
+    if (!drawState) return;
+    if (drawState.previewLayer) map.removeLayer(drawState.previewLayer);
+    drawState.vertexMarkers.forEach((m) => map.removeLayer(m));
+    map.off("click", onDrawMapClick);
+    map.off("mousemove", onDrawMouseMove);
+    map.off("dblclick", finishDrawing);
+    map.doubleClickZoom.enable();
+    appEl.classList.remove("drawing-active");
+    drawStatusEl.hidden = true;
+    addAreaBtn.textContent = "Add new area…";
+    drawState = null;
   }
 
   function recomputeFlagsAndRender() {

@@ -42,6 +42,25 @@ It runs entirely in your browser. No build step, no server, no account.
 7. Click **Export filtered GeoJSON** to download a copy of the original
    file with every *excluded* feature removed. Everything else (kept and
    still-unreviewed features) is preserved as-is.
+8. Open a feature's popup and click **Split…** to divide it into two —
+   useful when one polygon covers both a legitimate block and something
+   like a hydro corridor or a large patch of forest. Click points across
+   the area to draw a cut line, then `Enter`, double-click, or the
+   **Finish** button to complete it (`Esc` or **Cancel** to back out).
+   The cut needs to fully cross the area (past both edges) to produce two
+   separate pieces; both come out **unreviewed** so you decide on each
+   independently. This is undoable like any other action.
+9. Click **Add new area…** (top bar) to draw a brand new polygon from
+   scratch — for spots your block-generating code missed entirely. Same
+   click-to-add-point / `Enter` or double-click to finish / `Esc` to
+   cancel interaction as splitting, just needs 3+ points instead of 2. The
+   new area starts **unreviewed** and is included in exports and undo/redo
+   like anything else.
+
+While drawing (a split or a new area), clicks are captured for placing
+points rather than for the usual select/quick-exclude behavior — this
+includes clicks that land on top of other areas, since a cut line very
+often needs to cross right over them.
 
 Your marks are saved to the browser's `localStorage` as you go (keyed to
 the loaded file's name/size/feature count), so a refresh won't lose your
@@ -90,3 +109,12 @@ close to 0 for a long thin shape, regardless of absolute size.
   `app.js` if you ever produce those.
 - Leaflet and Turf.js are vendored in `vendor/` (no CDN dependency) so the
   app works fully offline except for fetching basemap tile images.
+- Splitting works by buffering the drawn cut line into a thin ("knife")
+  polygon and subtracting it, rather than computing an exact line
+  intersection — simple and robust, but it leaves a ~1m gap between the
+  two resulting pieces. That's invisible at the zoom levels you'd
+  actually review at and doesn't affect anything about the review
+  workflow, just worth knowing it's not a mathematically exact cut.
+- New/split features get a synthetic id (e.g. `new-1`, `12a`/`12b`) shown
+  in the sidebar and popup instead of a plain array index, so you can
+  still tell at a glance where they came from.
