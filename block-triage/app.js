@@ -15,6 +15,7 @@
   let raw = null; // parsed geojson, kept so we can preserve top-level fields on export
   let selectedId = null;
   let thresholds = loadThresholds();
+  let quickExcludeMode = localStorage.getItem("block-triage:quickExcludeMode") === "true";
 
   const map = L.map("map", { preferCanvas: true }).setView([43.45, -79.68], 12);
   const osm = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
@@ -34,9 +35,19 @@
   const featureListEl = document.getElementById("feature-list");
   const areaThresholdInput = document.getElementById("area-threshold");
   const compactnessThresholdInput = document.getElementById("compactness-threshold");
+  const quickExcludeCheckbox = document.getElementById("quick-exclude-checkbox");
+  const appEl = document.getElementById("app");
 
   areaThresholdInput.value = thresholds.area;
   compactnessThresholdInput.value = thresholds.compactness;
+  quickExcludeCheckbox.checked = quickExcludeMode;
+  appEl.classList.toggle("quick-exclude-active", quickExcludeMode);
+
+  quickExcludeCheckbox.addEventListener("change", () => {
+    quickExcludeMode = quickExcludeCheckbox.checked;
+    localStorage.setItem("block-triage:quickExcludeMode", String(quickExcludeMode));
+    appEl.classList.toggle("quick-exclude-active", quickExcludeMode);
+  });
 
   fileInput.addEventListener("change", (e) => {
     const file = e.target.files[0];
@@ -196,7 +207,11 @@
       const layer = L.geoJSON(entry.feature, { style: () => styleFor(entry) });
       layer.on("click", () => {
         selectFeature(entry.id);
-        openPopup(entry);
+        if (quickExcludeMode) {
+          setStatus(entry.id, entry.status === "excluded" ? "unreviewed" : "excluded");
+        } else {
+          openPopup(entry);
+        }
       });
       layer.addTo(map);
       entry.layer = layer;
@@ -229,7 +244,8 @@
         div.querySelector("[data-status]").textContent = entry.status;
       });
     });
-    entry.layer.bindPopup(div).openPopup();
+    const center = entry.layer.getBounds().getCenter();
+    L.popup().setLatLng(center).setContent(div).openOn(map);
   }
 
   function setStatus(id, status) {

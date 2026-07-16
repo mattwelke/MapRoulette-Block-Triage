@@ -16,6 +16,10 @@
         <input type="file" id="file-input" accept=".geojson,.json,application/geo+json,application/json">
         <span id="file-name" class="muted">No file loaded</span>
         <button id="export-btn" disabled>Export filtered GeoJSON</button>
+        <label id="quick-exclude-toggle" class="toggle-label" title="When on, clicking an area on the map immediately excludes it (click again to undo) instead of opening the review popup.">
+          <input type="checkbox" id="quick-exclude-checkbox">
+          Quick exclude mode (click map to exclude, no popup)
+        </label>
       </div>
     </header>
 

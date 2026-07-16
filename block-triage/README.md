@@ -28,7 +28,14 @@ It runs entirely in your browser. No build step, no server, no account.
 5. The sidebar list is sorted smallest-area-first by default, and can be
    filtered to just "Flagged, undecided" so you can plow through the
    likely junk first.
-6. Click **Export filtered GeoJSON** to download a copy of the original
+6. Check **Quick exclude mode** (top bar) to skip the popup entirely:
+   while it's on, clicking an area on the map immediately marks it
+   excluded, and clicking it again undoes that (back to unreviewed).
+   This is meant for flying through a cluster of obvious junk quickly;
+   sidebar-list clicks still open the review popup regardless of this
+   mode, since that's the more deliberate review path. Turn it back off
+   to return to the click-then-confirm popup workflow.
+7. Click **Export filtered GeoJSON** to download a copy of the original
    file with every *excluded* feature removed. Everything else (kept and
    still-unreviewed features) is preserved as-is.
 

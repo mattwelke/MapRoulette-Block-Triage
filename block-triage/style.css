@@ -62,6 +62,26 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .muted { color: #777; font-size: 0.85rem; }
 
+.toggle-label {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.85rem;
+  cursor: pointer;
+  user-select: none;
+}
+
+.toggle-label input { cursor: pointer; }
+
+#app.quick-exclude-active #quick-exclude-toggle {
+  color: #b71c1c;
+  font-weight: 600;
+}
+
+#app.quick-exclude-active #map {
+  cursor: crosshair;
+}
+
 #body {
   flex: 1;
   display: flex;
