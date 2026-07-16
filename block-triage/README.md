@@ -25,6 +25,10 @@ It runs entirely in your browser. No build step, no server, no account.
    - **Reset** — back to unreviewed
    - Keyboard shortcuts once a feature is selected: `x` exclude, `g` keep,
      `r` reset, `j`/`k` next/previous in the current filtered list.
+   - `Ctrl+Z` (or the **Undo** button) undoes the last status change —
+     whether it came from a popup button, a keyboard shortcut, or an
+     accidental quick-exclude click. `Ctrl+Shift+Z` (or **Redo**) reapplies
+     it. History is per-file and clears when you load a new file.
 5. The sidebar list is sorted smallest-area-first by default, and can be
    filtered to just "Flagged, undecided" so you can plow through the
    likely junk first.

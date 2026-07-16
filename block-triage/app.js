@@ -16,6 +16,8 @@
   let selectedId = null;
   let thresholds = loadThresholds();
   let quickExcludeMode = localStorage.getItem("block-triage:quickExcludeMode") === "true";
+  let undoStack = [];
+  let redoStack = [];
 
   const map = L.map("map", { preferCanvas: true }).setView([43.45, -79.68], 12);
   const osm = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
@@ -37,6 +39,8 @@
   const compactnessThresholdInput = document.getElementById("compactness-threshold");
   const quickExcludeCheckbox = document.getElementById("quick-exclude-checkbox");
   const appEl = document.getElementById("app");
+  const undoBtn = document.getElementById("undo-btn");
+  const redoBtn = document.getElementById("redo-btn");
 
   areaThresholdInput.value = thresholds.area;
   compactnessThresholdInput.value = thresholds.compactness;
@@ -55,6 +59,8 @@
   });
 
   exportBtn.addEventListener("click", exportFiltered);
+  undoBtn.addEventListener("click", undo);
+  redoBtn.addEventListener("click", redo);
 
   areaThresholdInput.addEventListener("input", () => {
     thresholds.area = Number(areaThresholdInput.value) || 0;
@@ -72,8 +78,22 @@
   });
 
   document.addEventListener("keydown", (e) => {
-    if (!selectedId) return;
     if (e.target.tagName === "INPUT") return;
+
+    const key = e.key.toLowerCase();
+    if ((e.ctrlKey || e.metaKey) && key === "z") {
+      e.preventDefault();
+      if (e.shiftKey) redo();
+      else undo();
+      return;
+    }
+    if ((e.ctrlKey || e.metaKey) && key === "y") {
+      e.preventDefault();
+      redo();
+      return;
+    }
+
+    if (!selectedId) return;
     if (e.key === "x") setStatus(selectedId, "excluded");
     else if (e.key === "g") setStatus(selectedId, "kept");
     else if (e.key === "r") setStatus(selectedId, "unreviewed");
@@ -133,6 +153,9 @@
     entries = new Map();
     orderedIds = [];
     selectedId = null;
+    undoStack = [];
+    redoStack = [];
+    updateUndoRedoButtons();
 
     const marks = loadMarks();
 
@@ -248,14 +271,51 @@
     L.popup().setLatLng(center).setContent(div).openOn(map);
   }
 
-  function setStatus(id, status) {
+  function setStatus(id, status, opts) {
     const entry = entries.get(id);
-    if (!entry) return;
+    if (!entry || entry.status === status) return;
+    const prevStatus = entry.status;
     entry.status = status;
     entry.layer.setStyle(styleFor(entry));
     saveMarks();
     updateStats();
     renderList();
+
+    if (!opts || !opts.skipHistory) {
+      undoStack.push({ id, prevStatus, newStatus: status });
+      redoStack = [];
+      updateUndoRedoButtons();
+    }
+  }
+
+  function undo() {
+    const action = undoStack.pop();
+    if (!action) return;
+    setStatus(action.id, action.prevStatus, { skipHistory: true });
+    redoStack.push(action);
+    updateUndoRedoButtons();
+    focusOnAction(action.id);
+  }
+
+  function redo() {
+    const action = redoStack.pop();
+    if (!action) return;
+    setStatus(action.id, action.newStatus, { skipHistory: true });
+    undoStack.push(action);
+    updateUndoRedoButtons();
+    focusOnAction(action.id);
+  }
+
+  function focusOnAction(id) {
+    const entry = entries.get(id);
+    if (!entry) return;
+    selectFeature(id);
+    panTo(entry);
+  }
+
+  function updateUndoRedoButtons() {
+    undoBtn.disabled = undoStack.length === 0;
+    redoBtn.disabled = redoStack.length === 0;
   }
 
   function recomputeFlagsAndRender() {

@@ -15,6 +15,8 @@
         <label class="btn" for="file-input">Open GeoJSON&hellip;</label>
         <input type="file" id="file-input" accept=".geojson,.json,application/geo+json,application/json">
         <span id="file-name" class="muted">No file loaded</span>
+        <button id="undo-btn" disabled title="Undo last status change (Ctrl+Z)">&#8630; Undo</button>
+        <button id="redo-btn" disabled title="Redo (Ctrl+Shift+Z)">&#8631; Redo</button>
         <button id="export-btn" disabled>Export filtered GeoJSON</button>
         <label id="quick-exclude-toggle" class="toggle-label" title="When on, clicking an area on the map immediately excludes it (click again to undo) instead of opening the review popup.">
           <input type="checkbox" id="quick-exclude-checkbox">
@@ -62,6 +64,8 @@
           <div><kbd>g</kbd> keep selected (good)</div>
           <div><kbd>r</kbd> reset selected to unreviewed</div>
           <div><kbd>j</kbd> / <kbd>k</kbd> next / previous in list</div>
+          <div><kbd>Ctrl</kbd>+<kbd>Z</kbd> undo</div>
+          <div><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd> redo</div>
         </div>
 
         <div id="feature-list-wrap">
