@@ -73,6 +73,14 @@
             </label>
             <button id="mr-test-btn">Test connection</button>
             <div id="mr-status" class="muted"></div>
+            <hr>
+            <div class="muted">
+              "Remove task from challenge" queues the delete instead of
+              doing it right away — nothing is deleted until you process
+              the queue below, one task at a time.
+            </div>
+            <button id="mr-queue-btn" disabled>Process delete queue (0)</button>
+            <div id="mr-queue-status" class="muted"></div>
           </div>
         </div>
 

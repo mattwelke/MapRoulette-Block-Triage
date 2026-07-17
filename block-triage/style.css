@@ -210,12 +210,20 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
   margin-top: 0 !important;
 }
 
-#mr-test-btn {
+#mr-test-btn,
+#mr-queue-btn {
   width: 100%;
   margin-top: 0.2rem;
 }
 
-#mr-status {
+#mr-live-panel hr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 0.75rem 0;
+}
+
+#mr-status,
+#mr-queue-status {
   margin-top: 0.4rem;
   font-size: 0.8rem;
 }
@@ -310,6 +318,12 @@ kbd {
   border-color: #9c27b0;
   box-shadow: 0 0 0 1px #9c27b0 inset;
   background: #f6ecf9;
+}
+
+.feature-row.mr-delete-queued {
+  border-color: #b71c1c;
+  box-shadow: 0 0 0 1px #b71c1c inset;
+  background: #fdeaea;
 }
 
 .feature-row .status-dot {

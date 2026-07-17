@@ -166,14 +166,23 @@ check the banner rather than assume based on habit.
 a button that reads **Add task to challenge** for an area with no linked
 task (freshly drawn, or one you've removed), or **Remove task from
 challenge** for one that has one (loaded from a file that had
-`mr_taskId`, or created through this UI). Remove asks for confirmation
-first, since it's a real, immediate delete on MapRoulette with no local
-undo for it. Once it succeeds, the area disappears entirely from the map,
-the list, the stats, and the in-memory GeoJSON — there's nothing left to
-review locally once its task is gone from MapRoulette, so it's dropped
-rather than left behind as a fresh unlinked area. (A *failed* remove
-leaves the area exactly as it was — nothing is removed unless MapRoulette
-confirms the delete.)
+`mr_taskId`, or created through this UI).
+
+Clicking **Remove task from challenge** doesn't delete anything right
+away — it queues the removal (the button flips to **Cancel pending
+removal**, and the area gets a red dashed outline so you can see what's
+queued on the map and in the list) and nothing is deleted until you
+process the queue. This is because MapRoulette's delete endpoint can be
+slow, and deleting a batch of areas one popup at a time, waiting on each
+request, isn't a great way to work — queue up everything you've decided
+on, then let it run in the background. **Process delete queue N** (in
+the MapRoulette panel) confirms once for the whole batch, then deletes
+them one at a time with a short pause between each so as not to hammer
+the API. Whatever succeeds disappears entirely from the map, the list,
+the stats, and the in-memory GeoJSON, the same as before — there's
+nothing left to review locally once a task is gone from MapRoulette.
+Anything that fails stays exactly as it was (unqueued, still linked,
+nothing deleted), reported at the end so you know what to retry.
 
 **Splitting a task-linked area**, while live sync is on, also asks for
 confirmation up front (it tells you which task ID is involved), then

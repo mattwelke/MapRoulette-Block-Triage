@@ -18,6 +18,9 @@
   let mrApiKey = localStorage.getItem("block-triage:mrApiKey") || "";
   let mrChallengeId = localStorage.getItem("block-triage:mrChallengeId") || "";
   let mrLiveSync = localStorage.getItem("block-triage:mrLiveSync") === "true";
+  /** @type {Set<string>} entry ids queued for MapRoulette task deletion, not yet actually deleted */
+  let mrDeleteQueue = new Set();
+  const MR_DELETE_PACE_MS = 400; // pause between deletes when processing the queue
 
   /** @type {Map<string, {id:string, idx:number, feature:object, layer:L.Layer, area:number, compactness:number, status:string}>} */
   let entries = new Map();
@@ -126,11 +129,15 @@
   const mrLivePanel = document.getElementById("mr-live-panel");
   const mrLiveBanner = document.getElementById("mr-live-banner");
   const mrLiveBannerChallenge = document.getElementById("mr-live-banner-challenge");
+  const mrQueueBtn = document.getElementById("mr-queue-btn");
+  const mrQueueStatusEl = document.getElementById("mr-queue-status");
 
   mrApiKeyInput.value = mrApiKey;
   mrChallengeIdInput.value = mrChallengeId;
   mrLiveSyncCheckbox.checked = mrLiveSync;
   updateMrLiveSyncUI();
+  updateMrQueueButton();
+  mrQueueBtn.addEventListener("click", processMrDeleteQueue);
 
   mrLiveSyncCheckbox.addEventListener("change", () => {
     mrLiveSync = mrLiveSyncCheckbox.checked;
@@ -341,6 +348,57 @@
     if (mrLiveSync) {
       mrLiveBannerChallenge.textContent = mrChallengeId || "(no challenge ID set)";
     }
+    updateMrQueueButton();
+  }
+
+  function updateMrQueueButton() {
+    mrQueueBtn.textContent = `Process delete queue (${mrDeleteQueue.size})`;
+    mrQueueBtn.disabled = mrDeleteQueue.size === 0;
+  }
+
+  function sleep(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  async function processMrDeleteQueue() {
+    const ids = Array.from(mrDeleteQueue);
+    if (ids.length === 0) return;
+    const ok = confirm(
+      `This will permanently delete ${ids.length} task${ids.length === 1 ? "" : "s"} from MapRoulette, one at a time. Continue?`
+    );
+    if (!ok) return;
+
+    mrQueueBtn.disabled = true;
+    let done = 0;
+    let failed = 0;
+    for (const id of ids) {
+      done++;
+      mrDeleteQueue.delete(id);
+      const entry = entries.get(id);
+      if (!entry || !entry.mrTaskId) {
+        continue; // already gone or unlinked by some other means in the meantime
+      }
+      mrQueueStatusEl.textContent = `Deleting ${done} of ${ids.length} (task ${entry.mrTaskId})…`;
+      try {
+        await mrDeleteTask(entry.mrTaskId);
+        removeEntry(entry.id);
+        if (raw && Array.isArray(raw.features)) {
+          raw.features = raw.features.filter((f) => f !== entry.feature);
+        }
+      } catch (err) {
+        failed++;
+        entry.layer.setStyle(styleFor(entry)); // drop the "queued" look, it's back to just linked
+      }
+      saveMarks();
+      updateStats();
+      renderList();
+      if (done < ids.length) await sleep(MR_DELETE_PACE_MS);
+    }
+    mrQueueStatusEl.textContent =
+      failed === 0
+        ? `Done — deleted ${done} task${done === 1 ? "" : "s"}.`
+        : `Done — deleted ${done - failed} of ${done}; ${failed} failed and are still linked locally (click "Remove task from challenge" on them again to retry).`;
+    updateMrQueueButton();
   }
 
   function detectMrChallengeId(parsed) {
@@ -520,6 +578,9 @@
     newFeatureCounter = 0;
     addedAreaCounter = 0;
     updateUndoRedoButtons();
+    mrDeleteQueue = new Set();
+    updateMrQueueButton();
+    mrQueueStatusEl.textContent = "";
 
     const marks = loadMarks();
 
@@ -588,6 +649,9 @@
     const color = COLORS[cat];
     if (combineState && combineState.selectedIds.has(entry.id)) {
       return { color: "#9c27b0", weight: 4, dashArray: "6 3", fillColor: color, fillOpacity: 0.35 };
+    }
+    if (mrDeleteQueue.has(entry.id)) {
+      return { color: "#b71c1c", weight: 4, dashArray: "2 4", fillColor: color, fillOpacity: 0.35 };
     }
     const isSelected = entry.id === selectedId;
     return {
@@ -700,35 +764,38 @@
     const mrBtn = div.querySelector("[data-mr-action]");
     const mrStatusInline = div.querySelector("[data-mr-status]");
     const updateMrButton = () => {
-      mrBtn.textContent = entry.mrTaskId ? "Remove task from challenge" : "Add task to challenge";
+      if (mrDeleteQueue.has(entry.id)) {
+        mrBtn.textContent = "Cancel pending removal";
+      } else {
+        mrBtn.textContent = entry.mrTaskId ? "Remove task from challenge" : "Add task to challenge";
+      }
     };
     updateMrButton();
     mrBtn.addEventListener("click", async () => {
+      // Queueing/dequeueing is fully reversible (nothing's deleted yet), so
+      // no confirmation here - that happens once, for the whole batch, when
+      // actually processing the queue.
+      if (mrDeleteQueue.has(entry.id)) {
+        mrDeleteQueue.delete(entry.id);
+        entry.layer.setStyle(styleFor(entry));
+        mrStatusInline.textContent = "Removed from the delete queue.";
+        updateMrButton();
+        updateMrQueueButton();
+        renderList();
+        return;
+      }
       if (entry.mrTaskId) {
-        const ok = confirm(
-          `Remove MapRoulette task ${entry.mrTaskId} from the challenge? This deletes it immediately on MapRoulette and can't be undone from here.`
-        );
-        if (!ok) return;
+        mrDeleteQueue.add(entry.id);
+        entry.layer.setStyle(styleFor(entry));
+        mrStatusInline.textContent = 'Queued for removal — use "Process delete queue" in the sidebar to actually delete it.';
+        updateMrButton();
+        updateMrQueueButton();
+        renderList();
+        return;
       }
       mrBtn.disabled = true;
-      mrStatusInline.textContent = entry.mrTaskId ? "Removing from MapRoulette…" : "Adding to MapRoulette…";
+      mrStatusInline.textContent = "Adding to MapRoulette…";
       try {
-        if (entry.mrTaskId) {
-          await mrDeleteTask(entry.mrTaskId);
-          // The task is gone from MapRoulette, so there's nothing left to
-          // review here either - drop the area from the working set (map,
-          // list, stats) and from the in-memory GeoJSON entirely, rather
-          // than leaving it behind as a fresh "unreviewed" local area.
-          map.closePopup();
-          removeEntry(entry.id);
-          if (raw && Array.isArray(raw.features)) {
-            raw.features = raw.features.filter((f) => f !== entry.feature);
-          }
-          saveMarks();
-          updateStats();
-          renderList();
-          return;
-        }
         const created = await mrCreateTask(entry.feature);
         entry.mrTaskId = created.id;
         mrStatusInline.textContent = `Added as MapRoulette task ${created.id}.`;
@@ -1289,9 +1356,13 @@
     ids.forEach((id) => {
       const e = entries.get(id);
       const isCombineSelected = combineState && combineState.selectedIds.has(id);
+      const isMrQueued = mrDeleteQueue.has(id);
       const row = document.createElement("div");
       row.className =
-        "feature-row" + (id === selectedId ? " selected" : "") + (isCombineSelected ? " combine-selected" : "");
+        "feature-row" +
+        (id === selectedId ? " selected" : "") +
+        (isCombineSelected ? " combine-selected" : "") +
+        (isMrQueued ? " mr-delete-queued" : "");
       row.dataset.id = id;
       row.innerHTML = `
         <span class="status-dot ${category(e)}"></span>
