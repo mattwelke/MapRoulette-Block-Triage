@@ -502,7 +502,10 @@
     if (!mrApiKey) throw new Error("Set your MapRoulette API key first.");
     const res = await fetch(MR_API_BASE + path, {
       ...options,
-      headers: Object.assign({ apiKey: mrApiKey, "Content-Type": "application/json" }, (options && options.headers) || {}),
+      headers: Object.assign(
+        { apiKey: mrApiKey, "Content-Type": "application/json", From: "Block Triage - tronnalegacy@pm.me" },
+        (options && options.headers) || {}
+      ),
     });
     if (!res.ok) {
       let detail = "";

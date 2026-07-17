@@ -243,6 +243,9 @@ Some things worth knowing:
 - Task priority and instructions aren't carried over to newly-created
   tasks (including split children) — they're created with just a name,
   the challenge ID, and geometry. Easy to extend if you want that later.
+- Every request carries a `From: Block Triage - tronnalegacy@pm.me`
+  header, so it's identifiable on MapRoulette's end as coming from this
+  tool rather than the official site/app.
 
 ## Why compactness, not just area
 
