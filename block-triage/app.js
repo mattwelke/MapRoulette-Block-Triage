@@ -55,6 +55,41 @@
     )
     .addTo(map);
 
+  // The working areas use the canvas renderer (set via preferCanvas above, for
+  // performance with thousands of features), but canvas can't do SVG pattern
+  // fills. The reference layer's inner-border band needs one, so it gets its
+  // own dedicated SVG renderer. Added immediately (rather than lazily) so the
+  // <svg> element - and the tessellation pattern injected into it - exist
+  // before any reference file is ever loaded.
+  const referenceRenderer = L.svg().addTo(map);
+  const REFERENCE_COLOR = "#00acc1";
+  const REFERENCE_PATTERN_ID = "reference-tessellate-pattern";
+  (function injectReferencePattern() {
+    const svgEl = map.getPane("overlayPane").querySelector("svg");
+    const svgNS = "http://www.w3.org/2000/svg";
+    const defs = document.createElementNS(svgNS, "defs");
+    const pattern = document.createElementNS(svgNS, "pattern");
+    pattern.setAttribute("id", REFERENCE_PATTERN_ID);
+    pattern.setAttribute("width", "4");
+    pattern.setAttribute("height", "4");
+    pattern.setAttribute("patternUnits", "userSpaceOnUse");
+    pattern.setAttribute("patternTransform", "rotate(45)");
+    [
+      [0, 0],
+      [2, 2],
+    ].forEach(([x, y]) => {
+      const rect = document.createElementNS(svgNS, "rect");
+      rect.setAttribute("x", String(x));
+      rect.setAttribute("y", String(y));
+      rect.setAttribute("width", "2");
+      rect.setAttribute("height", "2");
+      rect.setAttribute("fill", REFERENCE_COLOR);
+      pattern.appendChild(rect);
+    });
+    defs.appendChild(pattern);
+    svgEl.appendChild(defs);
+  })();
+
   const fileInput = document.getElementById("file-input");
   const newBlankBtn = document.getElementById("new-blank-btn");
   const fileNameEl = document.getElementById("file-name");
@@ -259,13 +294,13 @@
       try {
         layer = L.geoJSON(parsed, {
           interactive: false,
-          style: { color: "#00acc1", weight: 2, dashArray: "4 3", fillColor: "#00acc1", fillOpacity: 0.1 },
+          style: { color: REFERENCE_COLOR, weight: 2, dashArray: "4 3", fillColor: REFERENCE_COLOR, fillOpacity: 0.1 },
           pointToLayer: (feature, latlng) =>
             L.circleMarker(latlng, {
               radius: 5,
-              color: "#00acc1",
+              color: REFERENCE_COLOR,
               weight: 2,
-              fillColor: "#00acc1",
+              fillColor: REFERENCE_COLOR,
               fillOpacity: 0.5,
               interactive: false,
             }),
@@ -276,6 +311,7 @@
       }
       referenceLayerGroup.clearLayers();
       referenceLayerGroup.addLayer(layer);
+      referenceLayerGroup.addLayer(buildReferenceBorderBand(parsed));
       if (!map.hasLayer(referenceLayerGroup)) map.addLayer(referenceLayerGroup);
       // Only steal the view if there's nothing else loaded yet to build the
       // view around - don't yank the map away from in-progress work.
@@ -288,6 +324,33 @@
       clearReferenceBtn.disabled = false;
     };
     reader.readAsText(file);
+  }
+
+  // A thin tessellated-pattern band just inside each polygon's boundary, on
+  // top of its plain fill, so the filled interior reads clearly even where
+  // the fill color alone doesn't contrast enough against the basemap.
+  function buildReferenceBorderBand(parsed) {
+    const BAND_WIDTH_KM = 0.008; // ~8m inward - thin enough to read as a border, wide enough to show the pattern
+    const features = Array.isArray(parsed.features) ? parsed.features : [parsed];
+    const bandFeatures = [];
+    features.forEach((feature) => {
+      if (!feature.geometry || (feature.geometry.type !== "Polygon" && feature.geometry.type !== "MultiPolygon")) {
+        return;
+      }
+      try {
+        const inset = turf.buffer(feature, -BAND_WIDTH_KM, { units: "kilometers" });
+        if (!inset) return;
+        const band = turf.difference(turf.featureCollection([feature, inset]));
+        if (band) bandFeatures.push(band);
+      } catch (err) {
+        console.warn("Could not build reference border band for a feature", err);
+      }
+    });
+    return L.geoJSON(turf.featureCollection(bandFeatures), {
+      interactive: false,
+      renderer: referenceRenderer,
+      style: { stroke: false, fillColor: `url(#${REFERENCE_PATTERN_ID})`, fillOpacity: 0.9 },
+    });
   }
 
   function clearReferenceLayer() {

@@ -112,15 +112,20 @@ you triage a different town's blocks, just ignore or remove it.)
 ## Reference layer
 
 **Load reference layer…** (top bar) loads any GeoJSON file as a plain
-visual overlay — teal/dashed to keep it clearly distinct from the working
-areas, and shown as a **Reference layer** entry in the layer switcher.
-Unlike the file you open for review, this one is purely for context: it's
-never selectable, never counted in the stats, never touched by undo/redo,
-and never included in the export. Point/LineString/Polygon geometries all
+visual overlay — teal to keep it clearly distinct from the working areas,
+and shown as a **Reference layer** entry in the layer switcher. Unlike the
+file you open for review, this one is purely for context: it's never
+selectable, never counted in the stats, never touched by undo/redo, and
+never included in the export. Point/LineString/Polygon geometries all
 render (Leaflet handles the mix natively). Use it for things like an
 existing building footprints file, a boundary you're drawing against, or
 any other dataset you want visible while you triage or draw from scratch.
 Loading a new one replaces the old; **Clear** removes it entirely.
+
+Polygons also get a checkered band just inside their boundary, on top of
+the plain fill — the flat fill color alone isn't always enough contrast to
+tell a filled area from empty space against some basemaps, so the pattern
+gives a second, sharper visual cue for where the boundary actually is.
 
 ## Why compactness, not just area
 
