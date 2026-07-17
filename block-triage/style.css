@@ -157,6 +157,55 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
   line-height: 1.5;
 }
 
+#maproulette label {
+  display: block;
+  font-size: 0.85rem;
+  margin-bottom: 0.4rem;
+}
+
+#maproulette input[type="password"],
+#maproulette input[type="number"] {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0.3rem;
+  margin-top: 0.2rem;
+}
+
+.mr-key-row {
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
+}
+
+.mr-key-row input {
+  flex: 1;
+  margin-top: 0 !important;
+}
+
+#mr-test-btn {
+  width: 100%;
+  margin-top: 0.2rem;
+}
+
+#mr-status {
+  margin-top: 0.4rem;
+  font-size: 0.8rem;
+}
+
+#mr-status.mr-success {
+  color: #2e7d32;
+}
+
+#mr-status.mr-error {
+  color: #c62828;
+}
+
+.mr-inline-status {
+  font-size: 0.8rem;
+  margin-top: 0.3rem;
+  color: #555;
+}
+
 #thresholds label, #filters label {
   display: block;
   font-size: 0.85rem;

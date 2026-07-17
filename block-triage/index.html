@@ -44,6 +44,23 @@
       <aside id="sidebar">
         <div id="stats"></div>
 
+        <div id="maproulette">
+          <h2>MapRoulette</h2>
+          <label>
+            API key
+            <span class="mr-key-row">
+              <input type="password" id="mr-api-key-input" autocomplete="off" placeholder="paste your apiKey">
+              <button id="mr-api-key-clear-btn" title="Forget the stored API key">Clear</button>
+            </span>
+          </label>
+          <label>
+            Challenge ID
+            <input type="number" id="mr-challenge-id-input" placeholder="e.g. 55881">
+          </label>
+          <button id="mr-test-btn">Test connection</button>
+          <div id="mr-status" class="muted"></div>
+        </div>
+
         <div id="thresholds">
           <h2>Auto-flag thresholds</h2>
           <label>

@@ -130,6 +130,60 @@ actually is. It only appears once you're zoomed in a lot (past zoom 18);
 at ordinary zoom levels it'd just be a hairline, so it's left out
 entirely rather than shown too thin to see.
 
+## MapRoulette integration
+
+If the GeoJSON you load came from MapRoulette (it carries `mr_taskId` /
+`mr_challengeId` properties per feature, like a MapRoulette task export
+does), Block Triage can talk to the MapRoulette API directly from your
+browser to keep individual tasks in sync with what you do here.
+
+**Setup** (sidebar, "MapRoulette" section):
+- **API key** — from the bottom of https://maproulette.org/user/profile.
+  Stored in `localStorage` so you don't have to re-enter it every session;
+  **Clear** forgets it. Treat it like any other credential — it can
+  create/delete real tasks in your challenges.
+- **Challenge ID** — auto-filled from the loaded file's `mr_challengeId`
+  the first time (won't overwrite one you've already typed in), or type it
+  in directly for a from-scratch session with no file loaded yet.
+- **Test connection** — a harmless `GET /user/whoami` call to confirm the
+  key (and your browser's ability to reach the API at all) works before
+  you rely on it for anything real.
+
+**Per-area actions** (in the popup, alongside Exclude/Keep/Reset/Split):
+a button that reads **Add task to challenge** for an area with no linked
+task (freshly drawn, or one you've removed), or **Remove task from
+challenge** for one that has one (loaded from a file that had
+`mr_taskId`, or created through this UI). Remove is a real, immediate
+delete on MapRoulette — there's no confirmation dialog on top of it, so
+only click it once you've already decided.
+
+**Splitting a task-linked area** deletes its MapRoulette task and creates
+two new ones for the resulting pieces, automatically, right after the
+local split completes. **Combining stays local-only** — the areas being
+merged keep whatever MapRoulette tasks they had (untouched, not deleted),
+and the merged result starts unlinked; use its own "Add task to
+challenge" button if you want to link it to a fresh task.
+
+**Exporting** writes `mr_taskId` back onto any feature that has one, so a
+re-imported export recognizes the same linkage next time, the same way
+`_blockTriageStatus` does for kept/excluded.
+
+Some things worth knowing:
+- **Local undo/redo never touches MapRoulette.** Once a task is deleted
+  or created remotely, that's final — Ctrl+Z only rewinds what you see
+  here. Undoing a split after its MapRoulette sync completed will restore
+  the original area locally, but its old task ID is already gone from
+  MapRoulette; clicking "Remove task from challenge" on it at that point
+  will fail (404) since there's nothing left to delete.
+- **CORS is unverified.** Whether MapRoulette's API allows a direct
+  browser request from a local file isn't something the docs settle —
+  that's exactly what **Test connection** is for. If it fails with a
+  network/CORS error rather than an auth error, that's outside what this
+  tool (or you) can fix from the browser side.
+- Task priority and instructions aren't carried over to newly-created
+  tasks (including split children) — they're created with just a name,
+  the challenge ID, and geometry. Easy to extend if you want that later.
+
 ## Why compactness, not just area
 
 Some artifacts (thin slivers between the two carriageways of a divided

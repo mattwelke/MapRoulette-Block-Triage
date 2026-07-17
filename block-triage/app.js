@@ -14,6 +14,10 @@
   // anything MapRoulette itself reads out of task GeoJSON properties.
   const STATUS_PROPERTY = "_blockTriageStatus";
 
+  const MR_API_BASE = "https://maproulette.org/api/v2";
+  let mrApiKey = localStorage.getItem("block-triage:mrApiKey") || "";
+  let mrChallengeId = localStorage.getItem("block-triage:mrChallengeId") || "";
+
   /** @type {Map<string, {id:string, idx:number, feature:object, layer:L.Layer, area:number, compactness:number, status:string}>} */
   let entries = new Map();
   let orderedIds = []; // insertion order == original feature order
@@ -112,6 +116,31 @@
   const referenceFileInput = document.getElementById("reference-file-input");
   const referenceFileNameEl = document.getElementById("reference-file-name");
   const clearReferenceBtn = document.getElementById("clear-reference-btn");
+  const mrApiKeyInput = document.getElementById("mr-api-key-input");
+  const mrApiKeyClearBtn = document.getElementById("mr-api-key-clear-btn");
+  const mrChallengeIdInput = document.getElementById("mr-challenge-id-input");
+  const mrTestBtn = document.getElementById("mr-test-btn");
+  const mrStatusEl = document.getElementById("mr-status");
+
+  mrApiKeyInput.value = mrApiKey;
+  mrChallengeIdInput.value = mrChallengeId;
+
+  mrApiKeyInput.addEventListener("change", () => {
+    mrApiKey = mrApiKeyInput.value.trim();
+    localStorage.setItem("block-triage:mrApiKey", mrApiKey);
+  });
+  mrApiKeyClearBtn.addEventListener("click", () => {
+    mrApiKey = "";
+    mrApiKeyInput.value = "";
+    localStorage.removeItem("block-triage:mrApiKey");
+    mrStatusEl.textContent = "";
+    mrStatusEl.className = "muted";
+  });
+  mrChallengeIdInput.addEventListener("change", () => {
+    mrChallengeId = mrChallengeIdInput.value.trim();
+    localStorage.setItem("block-triage:mrChallengeId", mrChallengeId);
+  });
+  mrTestBtn.addEventListener("click", mrTestConnection);
 
   areaThresholdInput.value = thresholds.area;
   compactnessThresholdInput.value = thresholds.compactness;
@@ -279,6 +308,86 @@
     exportBtn.disabled = false;
     addAreaBtn.disabled = false;
     combineAreaBtn.disabled = false;
+
+    // Don't clobber a challenge ID the user already set/typed - only fill it
+    // in when we don't have one yet.
+    if (!mrChallengeId) {
+      const detected = detectMrChallengeId(parsed);
+      if (detected) {
+        mrChallengeId = detected;
+        mrChallengeIdInput.value = detected;
+        localStorage.setItem("block-triage:mrChallengeId", detected);
+      }
+    }
+  }
+
+  function detectMrChallengeId(parsed) {
+    const features = Array.isArray(parsed.features) ? parsed.features : [];
+    for (const feature of features) {
+      const raw = feature.properties && feature.properties.mr_challengeId;
+      if (raw !== undefined && raw !== null && raw !== "") return String(raw);
+    }
+    return null;
+  }
+
+  function parseMrTaskId(feature) {
+    const raw = feature.properties && feature.properties.mr_taskId;
+    if (raw === undefined || raw === null || raw === "") return null;
+    const n = Number(raw);
+    return Number.isFinite(n) ? n : null;
+  }
+
+  // --- MapRoulette API ---
+
+  async function mrRequest(path, options) {
+    if (!mrApiKey) throw new Error("Set your MapRoulette API key first.");
+    const res = await fetch(MR_API_BASE + path, {
+      ...options,
+      headers: Object.assign({ apiKey: mrApiKey, "Content-Type": "application/json" }, (options && options.headers) || {}),
+    });
+    if (!res.ok) {
+      let detail = "";
+      try {
+        detail = await res.text();
+      } catch (err) {
+        // ignore - use status text below
+      }
+      throw new Error(`MapRoulette API ${res.status}: ${detail || res.statusText}`);
+    }
+    if (res.status === 204 || res.status === 304) return null;
+    const text = await res.text();
+    return text ? JSON.parse(text) : null;
+  }
+
+  async function mrTestConnection() {
+    mrStatusEl.textContent = "Testing…";
+    mrStatusEl.className = "muted";
+    try {
+      const user = await mrRequest("/user/whoami");
+      const name = (user && user.osmProfile && user.osmProfile.displayName) || "unknown user";
+      mrStatusEl.textContent = `Connected as ${name}.`;
+      mrStatusEl.className = "mr-success";
+    } catch (err) {
+      mrStatusEl.textContent = "Connection failed: " + err.message;
+      mrStatusEl.className = "mr-error";
+    }
+  }
+
+  async function mrCreateTask(feature) {
+    if (!mrChallengeId) throw new Error("Set a Challenge ID first.");
+    const body = {
+      name: crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      parent: Number(mrChallengeId),
+      geometries: {
+        type: "FeatureCollection",
+        features: [{ type: "Feature", geometry: feature.geometry, properties: {} }],
+      },
+    };
+    return mrRequest("/task", { method: "POST", body: JSON.stringify(body) });
+  }
+
+  function mrDeleteTask(taskId) {
+    return mrRequest(`/task/${taskId}`, { method: "DELETE" });
   }
 
   function loadReferenceLayer(file) {
@@ -405,6 +514,7 @@
         area,
         compactness,
         status: marks[id] || embeddedStatus,
+        mrTaskId: parseMrTaskId(feature),
       });
       orderedIds.push(id);
     });
@@ -535,6 +645,10 @@
       <div class="popup-actions">
         <button data-split>Split&hellip;</button>
       </div>
+      <div class="popup-actions">
+        <button data-mr-action></button>
+      </div>
+      <div class="mr-inline-status" data-mr-status></div>
     `;
     div.querySelectorAll("button[data-action]").forEach((btn) => {
       btn.addEventListener("click", () => {
@@ -546,6 +660,34 @@
       map.closePopup();
       startDrawing("split", entry.id);
     });
+
+    const mrBtn = div.querySelector("[data-mr-action]");
+    const mrStatusInline = div.querySelector("[data-mr-status]");
+    const updateMrButton = () => {
+      mrBtn.textContent = entry.mrTaskId ? "Remove task from challenge" : "Add task to challenge";
+    };
+    updateMrButton();
+    mrBtn.addEventListener("click", async () => {
+      mrBtn.disabled = true;
+      mrStatusInline.textContent = entry.mrTaskId ? "Removing from MapRoulette…" : "Adding to MapRoulette…";
+      try {
+        if (entry.mrTaskId) {
+          await mrDeleteTask(entry.mrTaskId);
+          entry.mrTaskId = null;
+          mrStatusInline.textContent = "Removed from MapRoulette.";
+        } else {
+          const created = await mrCreateTask(entry.feature);
+          entry.mrTaskId = created.id;
+          mrStatusInline.textContent = `Added as MapRoulette task ${created.id}.`;
+        }
+      } catch (err) {
+        mrStatusInline.textContent = "Failed: " + err.message;
+      } finally {
+        mrBtn.disabled = false;
+        updateMrButton();
+      }
+    });
+
     const center = entry.layer.getBounds().getCenter();
     L.popup().setLatLng(center).setContent(div).openOn(map);
   }
@@ -624,6 +766,7 @@
       area: entry.area,
       compactness: entry.compactness,
       status: entry.status,
+      mrTaskId: entry.mrTaskId,
     };
   }
 
@@ -675,6 +818,7 @@
         area,
         compactness,
         status: "unreviewed",
+        mrTaskId: null,
       };
     });
     newSnapshots.forEach((snap) => restoreEntryFromSnapshot(snap));
@@ -688,6 +832,37 @@
 
     selectFeature(newSnapshots[0].id);
     panTo(entries.get(newSnapshots[0].id));
+
+    // The local split is done; MapRoulette sync (if this area was a task) is a
+    // separate, non-blocking follow-up - failures here don't undo the local
+    // split (undo/redo never touch MapRoulette either, see the README).
+    if (originalSnapshot.mrTaskId) {
+      syncSplitToMapRoulette(originalSnapshot, newSnapshots);
+    }
+  }
+
+  async function syncSplitToMapRoulette(originalSnapshot, newSnapshots) {
+    try {
+      await mrDeleteTask(originalSnapshot.mrTaskId);
+    } catch (err) {
+      alert(
+        `Split completed locally, but removing MapRoulette task ${originalSnapshot.mrTaskId} failed: ${err.message}. It may still exist on MapRoulette; you may want to remove it manually.`
+      );
+      return;
+    }
+    for (const snap of newSnapshots) {
+      const liveEntry = entries.get(snap.id);
+      if (!liveEntry) continue; // this piece was removed/changed locally before the request resolved
+      try {
+        const created = await mrCreateTask(liveEntry.feature);
+        snap.mrTaskId = created.id;
+        liveEntry.mrTaskId = created.id;
+      } catch (err) {
+        alert(
+          `The original MapRoulette task was removed, but creating a new task for one split piece failed: ${err.message}. Use that area's "Add task to challenge" button to retry.`
+        );
+      }
+    }
   }
 
   function undoSplit(action) {
@@ -733,6 +908,7 @@
       area,
       compactness,
       status: "unreviewed",
+      mrTaskId: null,
     };
     restoreEntryFromSnapshot(snapshot);
 
@@ -861,6 +1037,11 @@
       area,
       compactness,
       status: "unreviewed",
+      // Combine is local-only for now: the constituent areas' MapRoulette
+      // tasks (if any) are left untouched remotely, and the merged result
+      // starts unlinked - use its "Add task to challenge" button if you want
+      // to link it to a fresh MapRoulette task.
+      mrTaskId: null,
     };
     restoreEntryFromSnapshot(newSnapshot);
 
@@ -1115,6 +1296,11 @@
         properties[STATUS_PROPERTY] = "kept";
       } else {
         delete properties[STATUS_PROPERTY];
+      }
+      if (e.mrTaskId) {
+        properties.mr_taskId = String(e.mrTaskId);
+      } else {
+        delete properties.mr_taskId;
       }
       features.push(Object.assign({}, e.feature, { properties }));
     });
