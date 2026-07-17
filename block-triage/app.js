@@ -89,6 +89,7 @@
     defs.appendChild(pattern);
     svgEl.appendChild(defs);
   })();
+  map.on("zoomend", () => updateBandVisibility());
 
   const fileInput = document.getElementById("file-input");
   const newBlankBtn = document.getElementById("new-blank-btn");
@@ -311,7 +312,8 @@
       }
       referenceLayerGroup.clearLayers();
       referenceLayerGroup.addLayer(layer);
-      referenceLayerGroup.addLayer(buildReferenceBorderBand(parsed));
+      currentBandLayer = buildReferenceBorderBand(parsed);
+      updateBandVisibility();
       if (!map.hasLayer(referenceLayerGroup)) map.addLayer(referenceLayerGroup);
       // Only steal the view if there's nothing else loaded yet to build the
       // view around - don't yank the map away from in-progress work.
@@ -328,9 +330,22 @@
 
   // A thin tessellated-pattern band just inside each polygon's boundary, on
   // top of its plain fill, so the filled interior reads clearly even where
-  // the fill color alone doesn't contrast enough against the basemap.
+  // the fill color alone doesn't contrast enough against the basemap. Only
+  // meaningful when zoomed in a lot, so it's kept out of the group entirely
+  // until then (see updateBandVisibility) rather than just visually tiny.
+  const BAND_MIN_ZOOM = 18;
+  let currentBandLayer = null;
+
+  function updateBandVisibility() {
+    if (!currentBandLayer) return;
+    const shouldShow = map.getZoom() >= BAND_MIN_ZOOM;
+    const isShown = referenceLayerGroup.hasLayer(currentBandLayer);
+    if (shouldShow && !isShown) referenceLayerGroup.addLayer(currentBandLayer);
+    else if (!shouldShow && isShown) referenceLayerGroup.removeLayer(currentBandLayer);
+  }
+
   function buildReferenceBorderBand(parsed) {
-    const BAND_WIDTH_KM = 0.008; // ~8m inward - thin enough to read as a border, wide enough to show the pattern
+    const BAND_WIDTH_KM = 0.002; // ~2m inward - a quarter of the original 8m
     const features = Array.isArray(parsed.features) ? parsed.features : [parsed];
     const bandFeatures = [];
     features.forEach((feature) => {
@@ -355,6 +370,7 @@
 
   function clearReferenceLayer() {
     referenceLayerGroup.clearLayers();
+    currentBandLayer = null;
     map.removeLayer(referenceLayerGroup);
     referenceFileNameEl.textContent = "No reference layer";
     clearReferenceBtn.disabled = true;

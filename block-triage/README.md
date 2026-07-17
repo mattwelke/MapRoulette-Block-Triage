@@ -122,10 +122,13 @@ existing building footprints file, a boundary you're drawing against, or
 any other dataset you want visible while you triage or draw from scratch.
 Loading a new one replaces the old; **Clear** removes it entirely.
 
-Polygons also get a checkered band just inside their boundary, on top of
-the plain fill — the flat fill color alone isn't always enough contrast to
-tell a filled area from empty space against some basemaps, so the pattern
-gives a second, sharper visual cue for where the boundary actually is.
+Polygons also get a thin checkered band just inside their boundary, on top
+of the plain fill — the flat fill color alone isn't always enough
+contrast to tell a filled area from empty space against some basemaps, so
+the pattern gives a second, sharper visual cue for where the boundary
+actually is. It only appears once you're zoomed in a lot (past zoom 18);
+at ordinary zoom levels it'd just be a hairline, so it's left out
+entirely rather than shown too thin to see.
 
 ## Why compactness, not just area
 
