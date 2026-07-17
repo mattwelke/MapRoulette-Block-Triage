@@ -52,6 +52,7 @@
     .addTo(map);
 
   const fileInput = document.getElementById("file-input");
+  const newBlankBtn = document.getElementById("new-blank-btn");
   const fileNameEl = document.getElementById("file-name");
   const exportBtn = document.getElementById("export-btn");
   const statsEl = document.getElementById("stats");
@@ -84,6 +85,7 @@
     const file = e.target.files[0];
     if (file) loadFile(file);
   });
+  newBlankBtn.addEventListener("click", startBlankSession);
 
   exportBtn.addEventListener("click", exportFiltered);
   undoBtn.addEventListener("click", undo);
@@ -202,17 +204,33 @@
         alert("Expected a GeoJSON FeatureCollection.");
         return;
       }
-      raw = parsed;
-      fileKey = hashString(file.name + ":" + parsed.features.length + ":" + reader.result.length);
-      fileNameEl.textContent = `${file.name} (${parsed.features.length} features)`;
-      buildEntries(parsed);
-      renderMapLayers();
-      recomputeFlagsAndRender();
-      exportBtn.disabled = false;
-      addAreaBtn.disabled = false;
-      combineAreaBtn.disabled = false;
+      const key = hashString(file.name + ":" + parsed.features.length + ":" + reader.result.length);
+      activateDataset(parsed, key, `${file.name} (${parsed.features.length} features)`);
     };
     reader.readAsText(file);
+  }
+
+  function startBlankSession() {
+    if (entries.size > 0) {
+      const ok = confirm(
+        "Start a new blank session? This discards the current areas from view (export first if you want to keep them)."
+      );
+      if (!ok) return;
+    }
+    const blank = { type: "FeatureCollection", name: "new-areas", features: [] };
+    activateDataset(blank, "blank-session", "New, unsaved session (0 features) — draw with “Add new area…”");
+  }
+
+  function activateDataset(parsed, key, label) {
+    raw = parsed;
+    fileKey = key;
+    fileNameEl.textContent = label;
+    buildEntries(parsed);
+    renderMapLayers();
+    recomputeFlagsAndRender();
+    exportBtn.disabled = false;
+    addAreaBtn.disabled = false;
+    combineAreaBtn.disabled = false;
   }
 
   function buildEntries(parsed) {

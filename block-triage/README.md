@@ -14,7 +14,12 @@ It runs entirely in your browser. No build step, no server, no account.
    `open index.html` / drag it into a browser window).
 2. Click **Open GeoJSON…** and pick your file (a `FeatureCollection` of
    `Polygon` features — see `sample-data/blocks.geojson` for an example,
-   which is real output for Oakville, Ontario).
+   which is real output for Oakville, Ontario). Or, to build a GeoJSON
+   from scratch instead of reviewing an existing one, click
+   **New (blank)** — this starts an empty session with no source file, so
+   **Add new area…** works right away with nothing pre-loaded. There's
+   nothing to reload from if you refresh the browser mid-session, so
+   export before you do.
 3. The map loads every polygon. Anything smaller than the **small area**
    threshold or below the **skinny (compactness)** threshold is
    automatically flagged orange as a likely candidate to exclude — tune
