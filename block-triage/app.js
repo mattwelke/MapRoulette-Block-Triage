@@ -715,18 +715,30 @@
       try {
         if (entry.mrTaskId) {
           await mrDeleteTask(entry.mrTaskId);
-          entry.mrTaskId = null;
-          mrStatusInline.textContent = "Removed from MapRoulette.";
-        } else {
-          const created = await mrCreateTask(entry.feature);
-          entry.mrTaskId = created.id;
-          mrStatusInline.textContent = `Added as MapRoulette task ${created.id}.`;
+          // The task is gone from MapRoulette, so there's nothing left to
+          // review here either - drop the area from the working set (map,
+          // list, stats) and from the in-memory GeoJSON entirely, rather
+          // than leaving it behind as a fresh "unreviewed" local area.
+          map.closePopup();
+          removeEntry(entry.id);
+          if (raw && Array.isArray(raw.features)) {
+            raw.features = raw.features.filter((f) => f !== entry.feature);
+          }
+          saveMarks();
+          updateStats();
+          renderList();
+          return;
         }
+        const created = await mrCreateTask(entry.feature);
+        entry.mrTaskId = created.id;
+        mrStatusInline.textContent = `Added as MapRoulette task ${created.id}.`;
       } catch (err) {
         mrStatusInline.textContent = "Failed: " + err.message;
       } finally {
-        mrBtn.disabled = false;
-        updateMrButton();
+        if (entries.has(entry.id)) {
+          mrBtn.disabled = false;
+          updateMrButton();
+        }
       }
     });
 

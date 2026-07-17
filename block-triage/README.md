@@ -168,7 +168,12 @@ task (freshly drawn, or one you've removed), or **Remove task from
 challenge** for one that has one (loaded from a file that had
 `mr_taskId`, or created through this UI). Remove asks for confirmation
 first, since it's a real, immediate delete on MapRoulette with no local
-undo for it.
+undo for it. Once it succeeds, the area disappears entirely from the map,
+the list, the stats, and the in-memory GeoJSON — there's nothing left to
+review locally once its task is gone from MapRoulette, so it's dropped
+rather than left behind as a fresh unlinked area. (A *failed* remove
+leaves the area exactly as it was — nothing is removed unless MapRoulette
+confirms the delete.)
 
 **Splitting a task-linked area**, while live sync is on, also asks for
 confirmation up front (it tells you which task ID is involved), then
