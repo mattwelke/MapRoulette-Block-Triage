@@ -218,6 +218,7 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 }
 
 #mr-test-btn,
+#mr-load-challenge-btn,
 #mr-queue-btn {
   width: 100%;
   margin-top: 0.2rem;
@@ -230,16 +231,19 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 }
 
 #mr-status,
+#mr-load-status,
 #mr-queue-status {
   margin-top: 0.4rem;
   font-size: 0.8rem;
 }
 
-#mr-status.mr-success {
+#mr-status.mr-success,
+#mr-load-status.mr-success {
   color: #2e7d32;
 }
 
-#mr-status.mr-error {
+#mr-status.mr-error,
+#mr-load-status.mr-error {
   color: #c62828;
 }
 

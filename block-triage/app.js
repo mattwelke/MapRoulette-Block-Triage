@@ -26,6 +26,22 @@
     return rawStatus ? String(rawStatus).replace(/_/g, " ") : "unknown";
   }
 
+  // Numeric Task.status codes as returned by GET /challenge/{id}/tasks,
+  // mapped to the same underscore-separated strings MapRoulette itself
+  // writes into a challenge's mr_taskStatus GeoJSON export - so a challenge
+  // loaded live through the API is indistinguishable, status-wise, from one
+  // loaded from a file (isLockedTaskStatus/formatMrTaskStatus need no
+  // special-casing either way).
+  const MR_TASK_STATUS_NAMES = {
+    0: "Created",
+    1: "Fixed",
+    2: "Not_An_Issue",
+    3: "Skipped",
+    4: "Deleted",
+    5: "Already_Fixed",
+    6: "Too_Hard",
+  };
+
   // Written into each kept feature's properties on export so a re-imported
   // (round-tripped) file can recognize prior decisions without relying on
   // localStorage. Namespaced and underscore-prefixed to avoid colliding with
@@ -173,6 +189,8 @@
   const mrChallengeIdInput = document.getElementById("mr-challenge-id-input");
   const mrTestBtn = document.getElementById("mr-test-btn");
   const mrStatusEl = document.getElementById("mr-status");
+  const mrLoadChallengeBtn = document.getElementById("mr-load-challenge-btn");
+  const mrLoadStatusEl = document.getElementById("mr-load-status");
   const mrLiveSyncCheckbox = document.getElementById("mr-live-sync-checkbox");
   const mrLivePanel = document.getElementById("mr-live-panel");
   const mrLiveBanner = document.getElementById("mr-live-banner");
@@ -210,6 +228,7 @@
     updateMrLiveSyncUI();
   });
   mrTestBtn.addEventListener("click", mrTestConnection);
+  mrLoadChallengeBtn.addEventListener("click", loadChallengeFromMapRoulette);
 
   mrQuickQueueCheckbox.checked = mrQuickQueueDeleteMode;
   appEl.classList.toggle("mr-quick-queue-active", mrQuickQueueDeleteMode);
@@ -550,6 +569,88 @@
 
   function mrDeleteTask(taskId) {
     return mrRequest(`/task/${taskId}`, { method: "DELETE" });
+  }
+
+  const MR_TASKS_PAGE_SIZE = 500;
+
+  async function mrFetchAllChallengeTasks(challengeId, onProgress) {
+    const tasks = [];
+    let page = 0;
+    for (;;) {
+      const batch = await mrRequest(`/challenge/${encodeURIComponent(challengeId)}/tasks?limit=${MR_TASKS_PAGE_SIZE}&page=${page}`);
+      const items = Array.isArray(batch) ? batch : [];
+      tasks.push(...items);
+      if (onProgress) onProgress(tasks.length);
+      if (items.length < MR_TASKS_PAGE_SIZE) break;
+      page++;
+    }
+    return tasks;
+  }
+
+  // Each Task's `geometries` is its own little FeatureCollection (usually
+  // one polygon, but the API allows more) - flatten every task's feature(s)
+  // into one challenge-wide FeatureCollection, stamping on the same
+  // mr_taskId/mr_challengeId/mr_taskStatus properties a file exported
+  // straight from MapRoulette would carry.
+  function mrTasksToFeatureCollection(tasks, challengeId) {
+    const features = [];
+    tasks.forEach((task) => {
+      const taskFeatures = task.geometries && Array.isArray(task.geometries.features) ? task.geometries.features : [];
+      taskFeatures.forEach((f) => {
+        if (!f.geometry) return;
+        features.push({
+          type: "Feature",
+          geometry: f.geometry,
+          properties: Object.assign({}, f.properties, {
+            mr_taskId: String(task.id),
+            mr_challengeId: String(challengeId),
+            mr_taskStatus: MR_TASK_STATUS_NAMES[task.status] || null,
+          }),
+        });
+      });
+    });
+    return { type: "FeatureCollection", name: `maproulette-challenge-${challengeId}`, features };
+  }
+
+  async function loadChallengeFromMapRoulette() {
+    if (!mrApiKey) {
+      mrLoadStatusEl.textContent = "Set your MapRoulette API key first.";
+      mrLoadStatusEl.className = "mr-error";
+      return;
+    }
+    if (!mrChallengeId) {
+      mrLoadStatusEl.textContent = "Set a Challenge ID first.";
+      mrLoadStatusEl.className = "mr-error";
+      return;
+    }
+    if (entries.size > 0) {
+      const ok = confirm(
+        "Load this challenge from MapRoulette? This replaces the areas currently loaded (export first if you want to keep them)."
+      );
+      if (!ok) return;
+    }
+
+    mrLoadChallengeBtn.disabled = true;
+    mrLoadStatusEl.className = "muted";
+    mrLoadStatusEl.textContent = "Loading tasks…";
+    try {
+      const tasks = await mrFetchAllChallengeTasks(mrChallengeId, (n) => {
+        mrLoadStatusEl.textContent = `Loading tasks… ${n} so far…`;
+      });
+      const parsed = mrTasksToFeatureCollection(tasks, mrChallengeId);
+      activateDataset(
+        parsed,
+        `mr-challenge-${mrChallengeId}`,
+        `MapRoulette challenge ${mrChallengeId} (${parsed.features.length} features)`
+      );
+      mrLoadStatusEl.textContent = `Loaded ${parsed.features.length} task area${parsed.features.length === 1 ? "" : "s"} from challenge ${mrChallengeId}.`;
+      mrLoadStatusEl.className = "mr-success";
+    } catch (err) {
+      mrLoadStatusEl.textContent = "Failed to load challenge: " + err.message;
+      mrLoadStatusEl.className = "mr-error";
+    } finally {
+      mrLoadChallengeBtn.disabled = false;
+    }
   }
 
   function loadReferenceLayer(file) {

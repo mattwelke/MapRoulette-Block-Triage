@@ -12,14 +12,19 @@ It runs entirely in your browser. No build step, no server, no account.
 
 1. Open `index.html` directly in a browser (double-click it, or
    `open index.html` / drag it into a browser window).
-2. Click **Open GeoJSON…** and pick your file (a `FeatureCollection` of
-   `Polygon` features — see `sample-data/blocks.geojson` for an example,
-   which is real output for Oakville, Ontario). Or, to build a GeoJSON
-   from scratch instead of reviewing an existing one, click
-   **New (blank)** — this starts an empty session with no source file, so
-   **Add new area…** works right away with nothing pre-loaded. There's
-   nothing to reload from if you refresh the browser mid-session, so
-   export before you do.
+2. Load some areas to review, one of three ways:
+   - Click **Open GeoJSON…** and pick your file (a `FeatureCollection` of
+     `Polygon` features — see `sample-data/blocks.geojson` for an example,
+     which is real output for Oakville, Ontario).
+   - Turn on **Live sync with MapRoulette** (sidebar) and click **Load
+     challenge from MapRoulette** — pulls every task straight from the API
+     using just a Challenge ID and API key, no file required. See
+     [MapRoulette integration](#maproulette-integration) below.
+   - To build a GeoJSON from scratch instead of reviewing an existing one,
+     click **New (blank)** — this starts an empty session with no source
+     file, so **Add new area…** works right away with nothing pre-loaded.
+     There's nothing to reload from if you refresh the browser mid-session
+     with any of these, so export before you do.
 3. The map loads every polygon. Anything smaller than the **small area**
    threshold or below the **skinny (compactness)** threshold is
    automatically flagged orange as a likely candidate to exclude — tune
@@ -165,6 +170,15 @@ check the banner rather than assume based on habit.
 - **Test connection** — a harmless `GET /user/whoami` call to confirm the
   key (and your browser's ability to reach the API at all) works before
   you rely on it for anything real.
+- **Load challenge from MapRoulette** — pulls every task in the given
+  Challenge ID directly from the API (paging through 500 at a time under
+  the hood), no GeoJSON file needed at all. Each task's geometry becomes
+  an area here, stamped with the same `mr_taskId` / `mr_challengeId` /
+  `mr_taskStatus` properties a file exported from MapRoulette would carry
+  — so everything downstream (locking already-`Fixed`/`Already Fixed`
+  tasks, add/remove, split sync, the delete queue) behaves identically to
+  a challenge you'd uploaded as a file. If you already have areas loaded,
+  it confirms first, since it replaces what's currently on screen.
 
 **Per-area actions** (only appear while live sync is on) (in the popup, alongside Exclude/Keep/Reset/Split):
 a button that reads **Add task to challenge** for an area with no linked
