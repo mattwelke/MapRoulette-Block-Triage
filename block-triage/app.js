@@ -28,6 +28,8 @@
   let addedAreaCounter = 0;
   /** @type {null | {type: "split"|"add", targetId?: string, points: [number,number][], previewLayer: L.Layer|null, vertexMarkers: L.Layer[]}} */
   let drawState = null;
+  /** @type {null | {selectedIds: Set<string>}} */
+  let combineState = null;
 
   const map = L.map("map", { preferCanvas: true }).setView([43.45, -79.68], 12);
   const osm = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
@@ -61,6 +63,7 @@
   const undoBtn = document.getElementById("undo-btn");
   const redoBtn = document.getElementById("redo-btn");
   const addAreaBtn = document.getElementById("add-area-btn");
+  const combineAreaBtn = document.getElementById("combine-area-btn");
   const drawStatusEl = document.getElementById("draw-status");
   const drawStatusText = document.getElementById("draw-status-text");
   const drawFinishBtn = document.getElementById("draw-finish-btn");
@@ -89,8 +92,18 @@
     if (drawState) cancelDrawing();
     else startDrawing("add", null);
   });
-  drawFinishBtn.addEventListener("click", finishDrawing);
-  drawCancelBtn.addEventListener("click", cancelDrawing);
+  combineAreaBtn.addEventListener("click", () => {
+    if (combineState) cancelCombine();
+    else startCombine();
+  });
+  drawFinishBtn.addEventListener("click", () => {
+    if (drawState) finishDrawing();
+    else if (combineState) finishCombine();
+  });
+  drawCancelBtn.addEventListener("click", () => {
+    if (drawState) cancelDrawing();
+    else if (combineState) cancelCombine();
+  });
 
   areaThresholdInput.addEventListener("input", () => {
     thresholds.area = Number(areaThresholdInput.value) || 0;
@@ -117,6 +130,17 @@
       } else if (e.key === "Escape") {
         e.preventDefault();
         cancelDrawing();
+      }
+      return;
+    }
+
+    if (combineState) {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        finishCombine();
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        cancelCombine();
       }
       return;
     }
@@ -186,12 +210,14 @@
       recomputeFlagsAndRender();
       exportBtn.disabled = false;
       addAreaBtn.disabled = false;
+      combineAreaBtn.disabled = false;
     };
     reader.readAsText(file);
   }
 
   function buildEntries(parsed) {
     if (drawState) cancelDrawing();
+    if (combineState) cancelCombine();
     entries.forEach((e) => map.removeLayer(e.layer));
     entries = new Map();
     orderedIds = [];
@@ -266,10 +292,16 @@
   function styleFor(entry) {
     const cat = category(entry);
     const color = COLORS[cat];
+    if (combineState && combineState.selectedIds.has(entry.id)) {
+      return { color: "#9c27b0", weight: 4, dashArray: "6 3", fillColor: color, fillOpacity: 0.35 };
+    }
     const isSelected = entry.id === selectedId;
     return {
       color: isSelected ? "#000" : color,
       weight: isSelected ? 3 : 1.5,
+      // setStyle() merges rather than replaces, so dashArray must be explicitly
+      // cleared here or a prior combine-selection dash pattern would stick.
+      dashArray: null,
       fillColor: color,
       fillOpacity: cat === "excluded" ? 0.55 : cat === "kept" ? 0.25 : cat === "flagged" ? 0.4 : 0.15,
     };
@@ -299,6 +331,11 @@
       if (drawState) {
         L.DomEvent.stopPropagation(e);
         onDrawMapClick(e);
+        return;
+      }
+      if (combineState) {
+        L.DomEvent.stopPropagation(e);
+        toggleCombineSelection(entry.id);
         return;
       }
       selectFeature(entry.id);
@@ -373,6 +410,7 @@
     if (!action) return;
     if (action.type === "split") undoSplit(action);
     else if (action.type === "add") undoAdd(action);
+    else if (action.type === "combine") undoCombine(action);
     else {
       setStatus(action.id, action.prevStatus, { skipHistory: true });
       focusOnAction(action.id);
@@ -386,6 +424,7 @@
     if (!action) return;
     if (action.type === "split") redoSplit(action);
     else if (action.type === "add") redoAdd(action);
+    else if (action.type === "combine") redoCombine(action);
     else {
       setStatus(action.id, action.newStatus, { skipHistory: true });
       focusOnAction(action.id);
@@ -559,10 +598,147 @@
     selectFeature(action.snapshot.id);
   }
 
+  // --- Combine areas ---
+
+  function startCombine() {
+    if (drawState) cancelDrawing();
+    map.closePopup();
+    combineState = { selectedIds: new Set() };
+    appEl.classList.add("combining-active");
+    drawStatusEl.hidden = false;
+    updateCombineStatusText();
+    combineAreaBtn.textContent = "Cancel combining…";
+  }
+
+  function updateCombineStatusText() {
+    if (!combineState) return;
+    const n = combineState.selectedIds.size;
+    drawStatusText.textContent = `Click 2 or more adjacent areas to merge (${n} selected so far). They should share a boundary.`;
+  }
+
+  function toggleCombineSelection(id) {
+    if (!combineState) return;
+    if (combineState.selectedIds.has(id)) combineState.selectedIds.delete(id);
+    else combineState.selectedIds.add(id);
+    const entry = entries.get(id);
+    if (entry && entry.layer) entry.layer.setStyle(styleFor(entry));
+    updateCombineStatusText();
+    renderList();
+  }
+
+  function finishCombine() {
+    if (!combineState) return;
+    const ids = Array.from(combineState.selectedIds);
+    if (ids.length < 2) {
+      alert("Select at least 2 areas to combine.");
+      return;
+    }
+    const targetEntries = ids.map((id) => entries.get(id)).filter(Boolean);
+    cancelCombine();
+    doCombine(targetEntries);
+  }
+
+  function cancelCombine() {
+    if (!combineState) return;
+    const ids = Array.from(combineState.selectedIds);
+    combineState = null;
+    ids.forEach((id) => {
+      const entry = entries.get(id);
+      if (entry && entry.layer) entry.layer.setStyle(styleFor(entry));
+    });
+    appEl.classList.remove("combining-active");
+    drawStatusEl.hidden = true;
+    combineAreaBtn.textContent = "Combine areas…";
+    renderList();
+  }
+
+  function doCombine(targetEntries) {
+    if (targetEntries.length < 2) return;
+
+    // Splitting deliberately leaves a ~1m gap between the pieces it creates (see
+    // doSplit), so a plain union of two just-split areas would see them as
+    // non-touching and produce a MultiPolygon instead of merging them. Close
+    // gaps up to that size first: buffer each area out slightly, union, then
+    // buffer the result back in by the same amount ("morphological closing").
+    // Areas that are genuinely far apart still won't bridge and correctly fail
+    // the parts.length check below.
+    const CLOSE_DISTANCE_KM = 0.001; // 1m — just past the split knife's ~0.5m radius
+    let unionResult;
+    try {
+      const closed = targetEntries.map((e) => turf.buffer(e.feature, CLOSE_DISTANCE_KM, { units: "kilometers" }));
+      const fc = turf.featureCollection(closed);
+      unionResult = turf.union(fc);
+      if (unionResult) {
+        unionResult = turf.buffer(unionResult, -CLOSE_DISTANCE_KM, { units: "kilometers" });
+      }
+    } catch (err) {
+      alert("Could not combine these areas: " + err.message);
+      return;
+    }
+    if (!unionResult) {
+      alert("Could not combine these areas.");
+      return;
+    }
+    const parts = turf.flatten(unionResult).features.filter((f) => f.geometry && f.geometry.type === "Polygon");
+    if (parts.length !== 1) {
+      alert(
+        "These areas don't touch or overlap, so combining them would create a MultiPolygon, which isn't supported here. Pick areas that share a boundary."
+      );
+      return;
+    }
+    const combined = parts[0];
+    const { area, compactness } = computeMetrics(combined);
+
+    const originalSnapshots = targetEntries.map(snapshotEntry);
+    originalSnapshots.forEach((snap) => removeEntry(snap.id));
+
+    const newSnapshot = {
+      id: hashString(JSON.stringify(combined.geometry) + ":" + newFeatureCounter++),
+      idx: originalSnapshots.map((s) => s.idx).join("+"),
+      feature: combined,
+      area,
+      compactness,
+      status: "unreviewed",
+    };
+    restoreEntryFromSnapshot(newSnapshot);
+
+    undoStack.push({ type: "combine", originals: originalSnapshots, newSnapshot });
+    redoStack = [];
+    updateUndoRedoButtons();
+    saveMarks();
+    updateStats();
+    renderList();
+
+    selectFeature(newSnapshot.id);
+    panTo(entries.get(newSnapshot.id));
+  }
+
+  function undoCombine(action) {
+    removeEntry(action.newSnapshot.id);
+    action.originals.forEach((snap) => restoreEntryFromSnapshot(snap));
+    saveMarks();
+    updateStats();
+    renderList();
+    selectFeature(action.originals[0].id);
+    panTo(entries.get(action.originals[0].id));
+  }
+
+  function redoCombine(action) {
+    action.originals.forEach((snap) => removeEntry(snap.id));
+    restoreEntryFromSnapshot(action.newSnapshot);
+    saveMarks();
+    updateStats();
+    renderList();
+    selectFeature(action.newSnapshot.id);
+    panTo(entries.get(action.newSnapshot.id));
+  }
+
   // --- Drawing controller (shared by split-line and add-new-area) ---
 
   function startDrawing(type, targetId) {
     if (drawState) cancelDrawing();
+    if (combineState) cancelCombine();
+    map.closePopup();
     drawState = { type, targetId, points: [], previewLayer: null, vertexMarkers: [] };
     map.doubleClickZoom.disable();
     appEl.classList.add("drawing-active");
@@ -714,8 +890,10 @@
     const frag = document.createDocumentFragment();
     ids.forEach((id) => {
       const e = entries.get(id);
+      const isCombineSelected = combineState && combineState.selectedIds.has(id);
       const row = document.createElement("div");
-      row.className = "feature-row" + (id === selectedId ? " selected" : "");
+      row.className =
+        "feature-row" + (id === selectedId ? " selected" : "") + (isCombineSelected ? " combine-selected" : "");
       row.dataset.id = id;
       row.innerHTML = `
         <span class="status-dot ${category(e)}"></span>
@@ -726,6 +904,10 @@
         </span>
       `;
       row.addEventListener("click", () => {
+        if (combineState) {
+          toggleCombineSelection(id);
+          return;
+        }
         selectFeature(id);
         panTo(e);
         openPopup(e);

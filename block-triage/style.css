@@ -82,7 +82,8 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
   cursor: crosshair;
 }
 
-#app.drawing-active #map {
+#app.drawing-active #map,
+#app.combining-active #map {
   cursor: crosshair;
 }
 
@@ -218,6 +219,12 @@ kbd {
 .feature-row.selected {
   border-color: #333;
   box-shadow: 0 0 0 1px #333 inset;
+}
+
+.feature-row.combine-selected {
+  border-color: #9c27b0;
+  box-shadow: 0 0 0 1px #9c27b0 inset;
+  background: #f6ecf9;
 }
 
 .feature-row .status-dot {

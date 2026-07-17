@@ -56,11 +56,22 @@ It runs entirely in your browser. No build step, no server, no account.
    cancel interaction as splitting, just needs 3+ points instead of 2. The
    new area starts **unreviewed** and is included in exports and undo/redo
    like anything else.
+10. Click **Combine areas…** (top bar) to merge two or more areas back
+    into one — the undo for a split you've decided wasn't a good idea
+    (e.g. it divided an area along nothing but empty space with no road,
+    stream, or path to tell a MapRoulette mapper where the boundary is,
+    leaving them unable to tell what's in scope). Click the areas to
+    merge — on the map or in the sidebar list, both work — then `Enter`
+    or **Finish** to combine (`Esc`/**Cancel** to back out). They need to
+    actually share a boundary; combining two that don't touch would
+    produce a `MultiPolygon`, which isn't supported, so it's rejected
+    with an explanation instead. The combined area comes out
+    **unreviewed**, and this is undoable too.
 
-While drawing (a split or a new area), clicks are captured for placing
-points rather than for the usual select/quick-exclude behavior — this
-includes clicks that land on top of other areas, since a cut line very
-often needs to cross right over them.
+While drawing or combining, clicks are captured for placing points or
+selecting areas rather than for the usual select/quick-exclude behavior —
+this includes clicks that land on top of other areas, since a cut line
+very often needs to cross right over them.
 
 Your marks are saved to the browser's `localStorage` as you go (keyed to
 the loaded file's name/size/feature count), so a refresh won't lose your
@@ -115,6 +126,10 @@ close to 0 for a long thin shape, regardless of absolute size.
   two resulting pieces. That's invisible at the zoom levels you'd
   actually review at and doesn't affect anything about the review
   workflow, just worth knowing it's not a mathematically exact cut.
-- New/split features get a synthetic id (e.g. `new-1`, `12a`/`12b`) shown
-  in the sidebar and popup instead of a plain array index, so you can
-  still tell at a glance where they came from.
+- New/split/combined features get a synthetic id (e.g. `new-1`, `12a`,
+  `12a+12b`) shown in the sidebar and popup instead of a plain array
+  index, so you can still tell at a glance where they came from.
+- Combining closes gaps up to ~1m before unioning (to reverse the exact
+  gap splitting leaves behind), then shrinks back — so it reliably
+  reverses a split, but won't bridge areas with a real, larger gap
+  between them.
