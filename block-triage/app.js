@@ -118,6 +118,35 @@
   })();
   map.on("zoomend", () => updateBandVisibility());
 
+  // The currently-selected area gets a pulsing highlight, so you can
+  // visually confirm what's selected before splitting/deleting/etc it -
+  // easy to lose track of in a dense cluster of small areas. Canvas can't
+  // animate individual shapes, so this gets its own SVG renderer (like the
+  // reference layer's band above) and the pulse itself is a plain CSS
+  // animation on the rendered <path>, not a JS-driven redraw loop. Traced
+  // right on the feature's own boundary (not an inward-buffered band, like
+  // the reference layer's border) since Leaflet stroke weight is in screen
+  // pixels - a real-world-distance inset would shrink to invisible at
+  // ordinary zoom levels, and selection needs to read at any zoom.
+  const selectionRenderer = L.svg().addTo(map);
+  let selectionPulseLayer = null;
+
+  function updateSelectionPulse() {
+    if (selectionPulseLayer) {
+      map.removeLayer(selectionPulseLayer);
+      selectionPulseLayer = null;
+    }
+    const entry = selectedId ? entries.get(selectedId) : null;
+    if (!entry) return;
+
+    selectionPulseLayer = L.geoJSON(entry.feature, {
+      interactive: false,
+      renderer: selectionRenderer,
+      className: "selection-pulse",
+      style: { color: "#000", weight: 3, fillColor: "#000", fillOpacity: 0.35 },
+    }).addTo(map);
+  }
+
   const fileInput = document.getElementById("file-input");
   const newBlankBtn = document.getElementById("new-blank-btn");
   const fileNameEl = document.getElementById("file-name");
@@ -623,6 +652,7 @@
     entries = new Map();
     orderedIds = [];
     selectedId = null;
+    updateSelectionPulse();
     undoStack = [];
     redoStack = [];
     newFeatureCounter = 0;
@@ -943,7 +973,10 @@
     if (entry.layer) map.removeLayer(entry.layer);
     entries.delete(id);
     orderedIds = orderedIds.filter((oid) => oid !== id);
-    if (selectedId === id) selectedId = null;
+    if (selectedId === id) {
+      selectedId = null;
+      updateSelectionPulse();
+    }
   }
 
   function snapshotEntry(entry) {
@@ -1487,6 +1520,7 @@
     selectedId = id;
     if (prev && entries.has(prev)) entries.get(prev).layer.setStyle(styleFor(entries.get(prev)));
     if (entries.has(id)) entries.get(id).layer.setStyle(styleFor(entries.get(id)));
+    if (prev !== id) updateSelectionPulse();
     renderList();
   }
 

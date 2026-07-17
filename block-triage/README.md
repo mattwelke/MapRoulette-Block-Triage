@@ -24,7 +24,11 @@ It runs entirely in your browser. No build step, no server, no account.
    threshold or below the **skinny (compactness)** threshold is
    automatically flagged orange as a likely candidate to exclude — tune
    both thresholds in the sidebar and the map/list update live.
-4. Click a polygon (on the map or in the sidebar list) to select it, then:
+4. The currently-selected area pulses gently on the map (a soft dark
+   highlight fading in and out) so it stays easy to pick out of a dense
+   cluster — especially useful right before splitting or deleting
+   something you don't want to get wrong.
+5. Click a polygon (on the map or in the sidebar list) to select it, then:
    - **Exclude** — mark it to be dropped from the exported file (red)
    - **Keep** — explicitly keep it even if flagged (green)
    - **Reset** — back to unreviewed
@@ -34,20 +38,20 @@ It runs entirely in your browser. No build step, no server, no account.
      whether it came from a popup button, a keyboard shortcut, or an
      accidental quick-exclude click. `Ctrl+Shift+Z` (or **Redo**) reapplies
      it. History is per-file and clears when you load a new file.
-5. The sidebar list is sorted smallest-area-first by default, and can be
+6. The sidebar list is sorted smallest-area-first by default, and can be
    filtered to just "Flagged, undecided" so you can plow through the
    likely junk first.
-6. Check **Quick exclude mode** (top bar) to skip the popup entirely:
+7. Check **Quick exclude mode** (top bar) to skip the popup entirely:
    while it's on, clicking an area on the map immediately marks it
    excluded, and clicking it again undoes that (back to unreviewed).
    This is meant for flying through a cluster of obvious junk quickly;
    sidebar-list clicks still open the review popup regardless of this
    mode, since that's the more deliberate review path. Turn it back off
    to return to the click-then-confirm popup workflow.
-7. Click **Export filtered GeoJSON** to download a copy of the original
+8. Click **Export filtered GeoJSON** to download a copy of the original
    file with every *excluded* feature removed. Everything else (kept and
    still-unreviewed features) is preserved as-is.
-8. Open a feature's popup and click **Split…** to divide it into two —
+9. Open a feature's popup and click **Split…** to divide it into two —
    useful when one polygon covers both a legitimate block and something
    like a hydro corridor or a large patch of forest. Click points across
    the area to draw a cut line, then `Enter`, double-click, or the
@@ -55,13 +59,13 @@ It runs entirely in your browser. No build step, no server, no account.
    The cut needs to fully cross the area (past both edges) to produce two
    separate pieces; both come out **unreviewed** so you decide on each
    independently. This is undoable like any other action.
-9. Click **Add new area…** (top bar) to draw a brand new polygon from
-   scratch — for spots your block-generating code missed entirely. Same
-   click-to-add-point / `Enter` or double-click to finish / `Esc` to
-   cancel interaction as splitting, just needs 3+ points instead of 2. The
-   new area starts **unreviewed** and is included in exports and undo/redo
-   like anything else.
-10. Click **Combine areas…** (top bar) to merge two or more areas back
+10. Click **Add new area…** (top bar) to draw a brand new polygon from
+    scratch — for spots your block-generating code missed entirely. Same
+    click-to-add-point / `Enter` or double-click to finish / `Esc` to
+    cancel interaction as splitting, just needs 3+ points instead of 2. The
+    new area starts **unreviewed** and is included in exports and undo/redo
+    like anything else.
+11. Click **Combine areas…** (top bar) to merge two or more areas back
     into one — the undo for a split you've decided wasn't a good idea
     (e.g. it divided an area along nothing but empty space with no road,
     stream, or path to tell a MapRoulette mapper where the boundary is,

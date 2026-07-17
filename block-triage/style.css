@@ -249,6 +249,15 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
   color: #555;
 }
 
+@keyframes selection-pulse {
+  0%, 100% { opacity: 0.15; }
+  50% { opacity: 0.85; }
+}
+
+.selection-pulse {
+  animation: selection-pulse 1.8s ease-in-out infinite;
+}
+
 .mr-locked-note {
   font-size: 0.8rem;
   margin-top: 0.4rem;
