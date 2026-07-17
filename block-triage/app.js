@@ -657,6 +657,12 @@
       });
     });
     div.querySelector("[data-split]").addEventListener("click", () => {
+      if (entry.mrTaskId) {
+        const ok = confirm(
+          `This area is linked to MapRoulette task ${entry.mrTaskId}. Splitting it will delete that task and create two new ones on MapRoulette once you finish drawing the cut. Continue?`
+        );
+        if (!ok) return;
+      }
       map.closePopup();
       startDrawing("split", entry.id);
     });
@@ -668,6 +674,12 @@
     };
     updateMrButton();
     mrBtn.addEventListener("click", async () => {
+      if (entry.mrTaskId) {
+        const ok = confirm(
+          `Remove MapRoulette task ${entry.mrTaskId} from the challenge? This deletes it immediately on MapRoulette and can't be undone from here.`
+        );
+        if (!ok) return;
+      }
       mrBtn.disabled = true;
       mrStatusInline.textContent = entry.mrTaskId ? "Removing from MapRoulette…" : "Adding to MapRoulette…";
       try {

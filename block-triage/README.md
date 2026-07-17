@@ -153,16 +153,17 @@ browser to keep individual tasks in sync with what you do here.
 a button that reads **Add task to challenge** for an area with no linked
 task (freshly drawn, or one you've removed), or **Remove task from
 challenge** for one that has one (loaded from a file that had
-`mr_taskId`, or created through this UI). Remove is a real, immediate
-delete on MapRoulette — there's no confirmation dialog on top of it, so
-only click it once you've already decided.
+`mr_taskId`, or created through this UI). Remove asks for confirmation
+first, since it's a real, immediate delete on MapRoulette with no local
+undo for it.
 
-**Splitting a task-linked area** deletes its MapRoulette task and creates
-two new ones for the resulting pieces, automatically, right after the
-local split completes. **Combining stays local-only** — the areas being
-merged keep whatever MapRoulette tasks they had (untouched, not deleted),
-and the merged result starts unlinked; use its own "Add task to
-challenge" button if you want to link it to a fresh task.
+**Splitting a task-linked area** also asks for confirmation up front (it
+tells you which task ID is involved), then deletes that MapRoulette task
+and creates two new ones for the resulting pieces, automatically, right
+after the local split completes. **Combining stays local-only** — the
+areas being merged keep whatever MapRoulette tasks they had (untouched,
+not deleted), and the merged result starts unlinked; use its own "Add
+task to challenge" button if you want to link it to a fresh task.
 
 **Exporting** writes `mr_taskId` back onto any feature that has one, so a
 re-imported export recognizes the same linkage next time, the same way
