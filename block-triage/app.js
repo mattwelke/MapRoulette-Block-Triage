@@ -6,7 +6,25 @@
     flagged: "#ff9800",
     excluded: "#e53935",
     kept: "#43a047",
+    locked: "#9e9e9e",
   };
+
+  // Tasks already resolved on MapRoulette (independent of whether live sync
+  // is currently on - this is read straight from the loaded file's data, not
+  // a live status). Locked areas can still be clicked to see their status,
+  // but not split, combined, or removed - there's nothing left to do with an
+  // already-fixed task structurally, and doing so would just create more
+  // work for someone re-reviewing it.
+  const LOCKED_TASK_STATUSES = new Set(["fixed", "already fixed"]);
+
+  function isLockedTaskStatus(rawStatus) {
+    if (!rawStatus) return false;
+    return LOCKED_TASK_STATUSES.has(String(rawStatus).replace(/_/g, " ").trim().toLowerCase());
+  }
+
+  function formatMrTaskStatus(rawStatus) {
+    return rawStatus ? String(rawStatus).replace(/_/g, " ") : "unknown";
+  }
 
   // Written into each kept feature's properties on export so a re-imported
   // (round-tripped) file can recognize prior decisions without relying on
@@ -30,6 +48,7 @@
   let selectedId = null;
   let thresholds = loadThresholds();
   let quickExcludeMode = localStorage.getItem("block-triage:quickExcludeMode") === "true";
+  let mrQuickQueueDeleteMode = localStorage.getItem("block-triage:mrQuickQueueDeleteMode") === "true";
   let undoStack = [];
   let redoStack = [];
   let newFeatureCounter = 0;
@@ -131,6 +150,7 @@
   const mrLiveBannerChallenge = document.getElementById("mr-live-banner-challenge");
   const mrQueueBtn = document.getElementById("mr-queue-btn");
   const mrQueueStatusEl = document.getElementById("mr-queue-status");
+  const mrQuickQueueCheckbox = document.getElementById("mr-quick-queue-checkbox");
 
   mrApiKeyInput.value = mrApiKey;
   mrChallengeIdInput.value = mrChallengeId;
@@ -161,6 +181,14 @@
     updateMrLiveSyncUI();
   });
   mrTestBtn.addEventListener("click", mrTestConnection);
+
+  mrQuickQueueCheckbox.checked = mrQuickQueueDeleteMode;
+  appEl.classList.toggle("mr-quick-queue-active", mrQuickQueueDeleteMode);
+  mrQuickQueueCheckbox.addEventListener("change", () => {
+    mrQuickQueueDeleteMode = mrQuickQueueCheckbox.checked;
+    localStorage.setItem("block-triage:mrQuickQueueDeleteMode", String(mrQuickQueueDeleteMode));
+    appEl.classList.toggle("mr-quick-queue-active", mrQuickQueueDeleteMode);
+  });
 
   areaThresholdInput.value = thresholds.area;
   compactnessThresholdInput.value = thresholds.compactness;
@@ -358,6 +386,28 @@
 
   function sleep(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  // Mirrors quick-exclude mode's click-to-toggle interaction, but for the
+  // delete queue: a quick way to mark a whole run of already-resolved-looking
+  // areas for removal while triaging, without opening a popup for each one.
+  // Only ever queues - actual deletion still requires "Process delete queue".
+  function toggleQuickQueueDelete(entry) {
+    if (entry.mrLocked) {
+      alert(
+        `This area's MapRoulette task is already "${formatMrTaskStatus(entry.mrTaskStatus)}" and is locked - it can't be queued for deletion.`
+      );
+      return;
+    }
+    if (!entry.mrTaskId) {
+      alert("This area isn't linked to a MapRoulette task yet, so there's nothing to queue for deletion.");
+      return;
+    }
+    if (mrDeleteQueue.has(entry.id)) mrDeleteQueue.delete(entry.id);
+    else mrDeleteQueue.add(entry.id);
+    entry.layer.setStyle(styleFor(entry));
+    updateMrQueueButton();
+    renderList();
   }
 
   async function processMrDeleteQueue() {
@@ -588,6 +638,7 @@
       const id = hashString(JSON.stringify(feature.geometry));
       const { area, compactness } = computeMetrics(feature);
       const embeddedStatus = feature.properties && feature.properties[STATUS_PROPERTY] === "kept" ? "kept" : "unreviewed";
+      const mrTaskStatus = (feature.properties && feature.properties.mr_taskStatus) || null;
 
       entries.set(id, {
         id,
@@ -598,6 +649,8 @@
         compactness,
         status: marks[id] || embeddedStatus,
         mrTaskId: parseMrTaskId(feature),
+        mrTaskStatus,
+        mrLocked: isLockedTaskStatus(mrTaskStatus),
       });
       orderedIds.push(id);
     });
@@ -638,6 +691,7 @@
   }
 
   function category(entry) {
+    if (entry.mrLocked) return "locked";
     if (entry.status === "excluded") return "excluded";
     if (entry.status === "kept") return "kept";
     if (entry.flagged) return "flagged";
@@ -647,6 +701,9 @@
   function styleFor(entry) {
     const cat = category(entry);
     const color = COLORS[cat];
+    if (entry.mrLocked) {
+      return { color: "#616161", weight: 2, dashArray: null, fillColor: color, fillOpacity: 0.45 };
+    }
     if (combineState && combineState.selectedIds.has(entry.id)) {
       return { color: "#9c27b0", weight: 4, dashArray: "6 3", fillColor: color, fillOpacity: 0.35 };
     }
@@ -697,7 +754,9 @@
         return;
       }
       selectFeature(entry.id);
-      if (quickExcludeMode) {
+      if (mrLiveSync && mrQuickQueueDeleteMode) {
+        toggleQuickQueueDelete(entry);
+      } else if (quickExcludeMode) {
         setStatus(entry.id, entry.status === "excluded" ? "unreviewed" : "excluded");
       } else {
         openPopup(entry);
@@ -723,16 +782,21 @@
       <div>Area: ${entry.area.toFixed(1)} m&sup2;</div>
       <div>Compactness: ${entry.compactness.toFixed(3)}</div>
       <div>Status: <span data-status>${entry.status}</span></div>
+      ${
+        entry.mrLocked
+          ? `<div class="mr-locked-note">&#128274; MapRoulette status: <strong>${formatMrTaskStatus(
+              entry.mrTaskStatus
+            )}</strong> — locked. Split and remove are disabled for already-resolved tasks.</div>`
+          : ""
+      }
       <div class="popup-actions">
         <button data-action="excluded">Exclude</button>
         <button data-action="kept">Keep</button>
         <button data-action="unreviewed">Reset</button>
       </div>
-      <div class="popup-actions">
-        <button data-split>Split&hellip;</button>
-      </div>
+      ${entry.mrLocked ? "" : `<div class="popup-actions"><button data-split>Split&hellip;</button></div>`}
       ${
-        mrLiveSync
+        mrLiveSync && !entry.mrLocked
           ? `<div class="popup-actions"><button data-mr-action></button></div>
              <div class="mr-inline-status" data-mr-status></div>`
           : ""
@@ -744,18 +808,21 @@
         div.querySelector("[data-status]").textContent = entry.status;
       });
     });
-    div.querySelector("[data-split]").addEventListener("click", () => {
-      if (mrLiveSync && entry.mrTaskId) {
-        const ok = confirm(
-          `This area is linked to MapRoulette task ${entry.mrTaskId}. Splitting it will delete that task and create two new ones on MapRoulette once you finish drawing the cut. Continue?`
-        );
-        if (!ok) return;
-      }
-      map.closePopup();
-      startDrawing("split", entry.id);
-    });
+    const splitBtn = div.querySelector("[data-split]");
+    if (splitBtn) {
+      splitBtn.addEventListener("click", () => {
+        if (mrLiveSync && entry.mrTaskId) {
+          const ok = confirm(
+            `This area is linked to MapRoulette task ${entry.mrTaskId}. Splitting it will delete that task and create two new ones on MapRoulette once you finish drawing the cut. Continue?`
+          );
+          if (!ok) return;
+        }
+        map.closePopup();
+        startDrawing("split", entry.id);
+      });
+    }
 
-    if (!mrLiveSync) {
+    if (!mrLiveSync || entry.mrLocked) {
       const center = entry.layer.getBounds().getCenter();
       L.popup().setLatLng(center).setContent(div).openOn(map);
       return;
@@ -888,6 +955,8 @@
       compactness: entry.compactness,
       status: entry.status,
       mrTaskId: entry.mrTaskId,
+      mrTaskStatus: entry.mrTaskStatus,
+      mrLocked: entry.mrLocked,
     };
   }
 
@@ -905,6 +974,12 @@
   function doSplit(targetId, points) {
     const entry = entries.get(targetId);
     if (!entry) return;
+    if (entry.mrLocked) {
+      alert(
+        `This area's MapRoulette task is already "${formatMrTaskStatus(entry.mrTaskStatus)}" and is locked - it can't be split.`
+      );
+      return;
+    }
 
     let diffResult;
     try {
@@ -940,6 +1015,8 @@
         compactness,
         status: "unreviewed",
         mrTaskId: null,
+        mrTaskStatus: null,
+        mrLocked: false,
       };
     });
     newSnapshots.forEach((snap) => restoreEntryFromSnapshot(snap));
@@ -1031,6 +1108,8 @@
       compactness,
       status: "unreviewed",
       mrTaskId: null,
+      mrTaskStatus: null,
+      mrLocked: false,
     };
     restoreEntryFromSnapshot(snapshot);
 
@@ -1078,9 +1157,15 @@
 
   function toggleCombineSelection(id) {
     if (!combineState) return;
+    const entry = entries.get(id);
+    if (!combineState.selectedIds.has(id) && entry && entry.mrLocked) {
+      alert(
+        `This area's MapRoulette task is already "${formatMrTaskStatus(entry.mrTaskStatus)}" and is locked - it can't be combined.`
+      );
+      return;
+    }
     if (combineState.selectedIds.has(id)) combineState.selectedIds.delete(id);
     else combineState.selectedIds.add(id);
-    const entry = entries.get(id);
     if (entry && entry.layer) entry.layer.setStyle(styleFor(entry));
     updateCombineStatusText();
     renderList();
@@ -1114,6 +1199,10 @@
 
   function doCombine(targetEntries) {
     if (targetEntries.length < 2) return;
+    if (targetEntries.some((e) => e.mrLocked)) {
+      alert("One or more of these areas has an already-resolved MapRoulette task and is locked - it can't be combined.");
+      return;
+    }
 
     // Splitting deliberately leaves a ~1m gap between the pieces it creates (see
     // doSplit), so a plain union of two just-split areas would see them as
@@ -1164,6 +1253,8 @@
       // starts unlinked - use its "Add task to challenge" button if you want
       // to link it to a fresh MapRoulette task.
       mrTaskId: null,
+      mrTaskStatus: null,
+      mrLocked: false,
     };
     restoreEntryFromSnapshot(newSnapshot);
 

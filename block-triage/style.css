@@ -3,6 +3,7 @@
   --flagged: #ff9800;
   --excluded: #e53935;
   --kept: #43a047;
+  --locked: #9e9e9e;
   --border: #ddd;
   --bg-sidebar: #fafafa;
 }
@@ -101,8 +102,14 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
   font-weight: 600;
 }
 
-#app.quick-exclude-active #map {
+#app.quick-exclude-active #map,
+#app.mr-quick-queue-active #map {
   cursor: crosshair;
+}
+
+#app.mr-quick-queue-active #mr-quick-queue-toggle {
+  color: #b71c1c;
+  font-weight: 600;
 }
 
 #app.drawing-active #map,
@@ -242,6 +249,15 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
   color: #555;
 }
 
+.mr-locked-note {
+  font-size: 0.8rem;
+  margin-top: 0.4rem;
+  padding: 0.35rem 0.5rem;
+  background: #f0f0f0;
+  border-radius: 4px;
+  color: #444;
+}
+
 #thresholds label, #filters label {
   display: block;
   font-size: 0.85rem;
@@ -272,6 +288,7 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 .swatch.flagged { background: var(--flagged); }
 .swatch.excluded { background: var(--excluded); }
 .swatch.kept { background: var(--kept); }
+.swatch.locked { background: var(--locked); }
 
 kbd {
   background: #eee;
@@ -337,6 +354,7 @@ kbd {
 .feature-row .status-dot.flagged { background: var(--flagged); }
 .feature-row .status-dot.excluded { background: var(--excluded); }
 .feature-row .status-dot.kept { background: var(--kept); }
+.feature-row .status-dot.locked { background: var(--locked); }
 
 .feature-row .meta {
   flex: 1;

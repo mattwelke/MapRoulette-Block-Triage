@@ -200,6 +200,30 @@ task to challenge" button if you want to link it to a fresh task.
 re-imported export recognizes the same linkage next time, the same way
 `_blockTriageStatus` does for kept/excluded.
 
+**Locked (already-resolved) tasks.** If a loaded feature's `mr_taskStatus`
+is `Fixed` or `Already_Fixed`, it's shown grey on the map and treated as
+locked — there's nothing structurally left to do with a task someone's
+already resolved. Locked areas:
+- **Can't** be split, combined, or queued for removal — each of those
+  actions shows an explanatory alert instead of doing anything.
+- **Can** still be clicked to open the popup (so you can see its status
+  at a glance), and Exclude/Keep/Reset still work on them, since those are
+  purely local bookkeeping, not actions that touch MapRoulette.
+- This applies regardless of whether live sync is on — it's read straight
+  from the file's data, not a live lookup, so it's consistent whether
+  you're just browsing a file or actively syncing.
+
+**Quick queue-delete mode** (checkbox in the MapRoulette panel, only
+relevant with live sync on) mirrors **Quick exclude mode** but for the
+delete queue: while it's on, clicking an area on the map queues it for
+removal (or unqueues it if it's already queued) instead of opening the
+popup — handy for quickly working through a run of areas you already
+know you want gone. It only applies to map clicks (sidebar-list clicks
+still open the popup, same carve-out as quick exclude mode), only queues
+areas that are actually linked to a MapRoulette task, and refuses locked
+areas with the same explanatory alert as everywhere else. Nothing is
+actually deleted until you run **Process delete queue**.
+
 Some things worth knowing:
 - **Local undo/redo never touches MapRoulette.** Once a task is deleted
   or created remotely, that's final — Ctrl+Z only rewinds what you see
