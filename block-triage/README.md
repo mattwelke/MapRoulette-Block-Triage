@@ -137,7 +137,20 @@ If the GeoJSON you load came from MapRoulette (it carries `mr_taskId` /
 does), Block Triage can talk to the MapRoulette API directly from your
 browser to keep individual tasks in sync with what you do here.
 
-**Setup** (sidebar, "MapRoulette" section):
+**This is opt-in and off by default.** The sidebar's "MapRoulette" section
+starts as just a single **Live sync with MapRoulette** checkbox — with it
+off, the app is exactly the local-only review tool it's always been:
+no MapRoulette UI, no API calls, safe to point at any GeoJSON including
+one that happens to carry `mr_taskId`s you don't want touched this
+session. Turning it on reveals the rest of the setup and — critically —
+shows a persistent red **LIVE: syncing with MapRoulette challenge
+&lt;id&gt;** banner across the top of the page the whole time it's on, so
+there's never any doubt about whether the button you're about to click
+has real, remote consequences. The toggle (like the API key and
+challenge ID) persists across sessions via `localStorage`, so remember to
+check the banner rather than assume based on habit.
+
+**Setup** (once live sync is on):
 - **API key** — from the bottom of https://maproulette.org/user/profile.
   Stored in `localStorage` so you don't have to re-enter it every session;
   **Clear** forgets it. Treat it like any other credential — it can
@@ -149,7 +162,7 @@ browser to keep individual tasks in sync with what you do here.
   key (and your browser's ability to reach the API at all) works before
   you rely on it for anything real.
 
-**Per-area actions** (in the popup, alongside Exclude/Keep/Reset/Split):
+**Per-area actions** (only appear while live sync is on) (in the popup, alongside Exclude/Keep/Reset/Split):
 a button that reads **Add task to challenge** for an area with no linked
 task (freshly drawn, or one you've removed), or **Remove task from
 challenge** for one that has one (loaded from a file that had
@@ -157,11 +170,15 @@ challenge** for one that has one (loaded from a file that had
 first, since it's a real, immediate delete on MapRoulette with no local
 undo for it.
 
-**Splitting a task-linked area** also asks for confirmation up front (it
-tells you which task ID is involved), then deletes that MapRoulette task
-and creates two new ones for the resulting pieces, automatically, right
-after the local split completes. **Combining stays local-only** — the
-areas being merged keep whatever MapRoulette tasks they had (untouched,
+**Splitting a task-linked area**, while live sync is on, also asks for
+confirmation up front (it tells you which task ID is involved), then
+deletes that MapRoulette task and creates two new ones for the resulting
+pieces, automatically, right after the local split completes. With live
+sync off, splitting a MapRoulette-sourced area is purely local, same as
+splitting anything else — no confirmation, no API calls, even if that
+area's `mr_taskId` is sitting right there in its data. **Combining stays
+local-only** regardless — the areas being merged keep whatever MapRoulette
+tasks they had (untouched,
 not deleted), and the merged result starts unlinked; use its own "Add
 task to challenge" button if you want to link it to a fresh task.
 

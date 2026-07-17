@@ -9,6 +9,10 @@
 </head>
 <body>
   <div id="app">
+    <div id="mr-live-banner" hidden>
+      &#128308; LIVE: syncing with MapRoulette challenge <span id="mr-live-banner-challenge"></span>
+    </div>
+
     <header id="topbar">
       <h1>Block Triage</h1>
       <div id="file-controls">
@@ -46,19 +50,30 @@
 
         <div id="maproulette">
           <h2>MapRoulette</h2>
-          <label>
-            API key
-            <span class="mr-key-row">
-              <input type="password" id="mr-api-key-input" autocomplete="off" placeholder="paste your apiKey">
-              <button id="mr-api-key-clear-btn" title="Forget the stored API key">Clear</button>
-            </span>
+          <label class="toggle-label">
+            <input type="checkbox" id="mr-live-sync-checkbox">
+            Live sync with MapRoulette
           </label>
-          <label>
-            Challenge ID
-            <input type="number" id="mr-challenge-id-input" placeholder="e.g. 55881">
-          </label>
-          <button id="mr-test-btn">Test connection</button>
-          <div id="mr-status" class="muted"></div>
+          <div class="muted" id="mr-live-sync-hint">
+            Off by default: pure local triage, nothing here talks to
+            MapRoulette. Turn on to add/remove tasks per area and have
+            splits sync automatically.
+          </div>
+          <div id="mr-live-panel" hidden>
+            <label>
+              API key
+              <span class="mr-key-row">
+                <input type="password" id="mr-api-key-input" autocomplete="off" placeholder="paste your apiKey">
+                <button id="mr-api-key-clear-btn" title="Forget the stored API key">Clear</button>
+              </span>
+            </label>
+            <label>
+              Challenge ID
+              <input type="number" id="mr-challenge-id-input" placeholder="e.g. 55881">
+            </label>
+            <button id="mr-test-btn">Test connection</button>
+            <div id="mr-status" class="muted"></div>
+          </div>
         </div>
 
         <div id="thresholds">

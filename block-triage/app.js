@@ -17,6 +17,7 @@
   const MR_API_BASE = "https://maproulette.org/api/v2";
   let mrApiKey = localStorage.getItem("block-triage:mrApiKey") || "";
   let mrChallengeId = localStorage.getItem("block-triage:mrChallengeId") || "";
+  let mrLiveSync = localStorage.getItem("block-triage:mrLiveSync") === "true";
 
   /** @type {Map<string, {id:string, idx:number, feature:object, layer:L.Layer, area:number, compactness:number, status:string}>} */
   let entries = new Map();
@@ -121,10 +122,21 @@
   const mrChallengeIdInput = document.getElementById("mr-challenge-id-input");
   const mrTestBtn = document.getElementById("mr-test-btn");
   const mrStatusEl = document.getElementById("mr-status");
+  const mrLiveSyncCheckbox = document.getElementById("mr-live-sync-checkbox");
+  const mrLivePanel = document.getElementById("mr-live-panel");
+  const mrLiveBanner = document.getElementById("mr-live-banner");
+  const mrLiveBannerChallenge = document.getElementById("mr-live-banner-challenge");
 
   mrApiKeyInput.value = mrApiKey;
   mrChallengeIdInput.value = mrChallengeId;
+  mrLiveSyncCheckbox.checked = mrLiveSync;
+  updateMrLiveSyncUI();
 
+  mrLiveSyncCheckbox.addEventListener("change", () => {
+    mrLiveSync = mrLiveSyncCheckbox.checked;
+    localStorage.setItem("block-triage:mrLiveSync", String(mrLiveSync));
+    updateMrLiveSyncUI();
+  });
   mrApiKeyInput.addEventListener("change", () => {
     mrApiKey = mrApiKeyInput.value.trim();
     localStorage.setItem("block-triage:mrApiKey", mrApiKey);
@@ -139,6 +151,7 @@
   mrChallengeIdInput.addEventListener("change", () => {
     mrChallengeId = mrChallengeIdInput.value.trim();
     localStorage.setItem("block-triage:mrChallengeId", mrChallengeId);
+    updateMrLiveSyncUI();
   });
   mrTestBtn.addEventListener("click", mrTestConnection);
 
@@ -317,7 +330,16 @@
         mrChallengeId = detected;
         mrChallengeIdInput.value = detected;
         localStorage.setItem("block-triage:mrChallengeId", detected);
+        updateMrLiveSyncUI();
       }
+    }
+  }
+
+  function updateMrLiveSyncUI() {
+    mrLivePanel.hidden = !mrLiveSync;
+    mrLiveBanner.hidden = !mrLiveSync;
+    if (mrLiveSync) {
+      mrLiveBannerChallenge.textContent = mrChallengeId || "(no challenge ID set)";
     }
   }
 
@@ -645,10 +667,12 @@
       <div class="popup-actions">
         <button data-split>Split&hellip;</button>
       </div>
-      <div class="popup-actions">
-        <button data-mr-action></button>
-      </div>
-      <div class="mr-inline-status" data-mr-status></div>
+      ${
+        mrLiveSync
+          ? `<div class="popup-actions"><button data-mr-action></button></div>
+             <div class="mr-inline-status" data-mr-status></div>`
+          : ""
+      }
     `;
     div.querySelectorAll("button[data-action]").forEach((btn) => {
       btn.addEventListener("click", () => {
@@ -657,7 +681,7 @@
       });
     });
     div.querySelector("[data-split]").addEventListener("click", () => {
-      if (entry.mrTaskId) {
+      if (mrLiveSync && entry.mrTaskId) {
         const ok = confirm(
           `This area is linked to MapRoulette task ${entry.mrTaskId}. Splitting it will delete that task and create two new ones on MapRoulette once you finish drawing the cut. Continue?`
         );
@@ -666,6 +690,12 @@
       map.closePopup();
       startDrawing("split", entry.id);
     });
+
+    if (!mrLiveSync) {
+      const center = entry.layer.getBounds().getCenter();
+      L.popup().setLatLng(center).setContent(div).openOn(map);
+      return;
+    }
 
     const mrBtn = div.querySelector("[data-mr-action]");
     const mrStatusInline = div.querySelector("[data-mr-status]");
@@ -845,10 +875,11 @@
     selectFeature(newSnapshots[0].id);
     panTo(entries.get(newSnapshots[0].id));
 
-    // The local split is done; MapRoulette sync (if this area was a task) is a
-    // separate, non-blocking follow-up - failures here don't undo the local
-    // split (undo/redo never touch MapRoulette either, see the README).
-    if (originalSnapshot.mrTaskId) {
+    // The local split is done; MapRoulette sync (if this area was a task and
+    // live sync is on) is a separate, non-blocking follow-up - failures here
+    // don't undo the local split (undo/redo never touch MapRoulette either,
+    // see the README).
+    if (mrLiveSync && originalSnapshot.mrTaskId) {
       syncSplitToMapRoulette(originalSnapshot, newSnapshots);
     }
   }
