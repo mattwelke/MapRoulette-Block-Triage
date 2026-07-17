@@ -44,10 +44,14 @@
     "https://skfd.github.io/oakville-address-layer/tiles/raster/{z}/{x}/{y}.png",
     { maxZoom: 20, attribution: "Oakville address layer by skfd" }
   );
+  // Purely visual: holds whatever the user loads via "Load reference layer...".
+  // Never interactive, never part of entries/undo/export - just context to look
+  // at while triaging the actual working dataset.
+  const referenceLayerGroup = L.layerGroup();
   L.control
     .layers(
       { "OpenStreetMap": osm, "Aerial (Esri)": esriImagery },
-      { "Oakville addresses (skfd)": oakvilleAddresses }
+      { "Oakville addresses (skfd)": oakvilleAddresses, "Reference layer": referenceLayerGroup }
     )
     .addTo(map);
 
@@ -69,6 +73,9 @@
   const drawStatusText = document.getElementById("draw-status-text");
   const drawFinishBtn = document.getElementById("draw-finish-btn");
   const drawCancelBtn = document.getElementById("draw-cancel-btn");
+  const referenceFileInput = document.getElementById("reference-file-input");
+  const referenceFileNameEl = document.getElementById("reference-file-name");
+  const clearReferenceBtn = document.getElementById("clear-reference-btn");
 
   areaThresholdInput.value = thresholds.area;
   compactnessThresholdInput.value = thresholds.compactness;
@@ -86,6 +93,11 @@
     if (file) loadFile(file);
   });
   newBlankBtn.addEventListener("click", startBlankSession);
+  referenceFileInput.addEventListener("change", (e) => {
+    const file = e.target.files[0];
+    if (file) loadReferenceLayer(file);
+  });
+  clearReferenceBtn.addEventListener("click", clearReferenceLayer);
 
   exportBtn.addEventListener("click", exportFiltered);
   undoBtn.addEventListener("click", undo);
@@ -231,6 +243,59 @@
     exportBtn.disabled = false;
     addAreaBtn.disabled = false;
     combineAreaBtn.disabled = false;
+  }
+
+  function loadReferenceLayer(file) {
+    const reader = new FileReader();
+    reader.onload = () => {
+      let parsed;
+      try {
+        parsed = JSON.parse(reader.result);
+      } catch (err) {
+        alert("Could not parse this file as JSON: " + err.message);
+        return;
+      }
+      let layer;
+      try {
+        layer = L.geoJSON(parsed, {
+          interactive: false,
+          style: { color: "#00acc1", weight: 2, dashArray: "4 3", fillColor: "#00acc1", fillOpacity: 0.1 },
+          pointToLayer: (feature, latlng) =>
+            L.circleMarker(latlng, {
+              radius: 5,
+              color: "#00acc1",
+              weight: 2,
+              fillColor: "#00acc1",
+              fillOpacity: 0.5,
+              interactive: false,
+            }),
+        });
+      } catch (err) {
+        alert("Could not render this as GeoJSON: " + err.message);
+        return;
+      }
+      referenceLayerGroup.clearLayers();
+      referenceLayerGroup.addLayer(layer);
+      if (!map.hasLayer(referenceLayerGroup)) map.addLayer(referenceLayerGroup);
+      // Only steal the view if there's nothing else loaded yet to build the
+      // view around - don't yank the map away from in-progress work.
+      const bounds = layer.getBounds();
+      if (entries.size === 0 && bounds.isValid()) {
+        map.fitBounds(bounds, { padding: [20, 20] });
+      }
+      const count = Array.isArray(parsed.features) ? parsed.features.length : 1;
+      referenceFileNameEl.textContent = `${file.name} (${count} features)`;
+      clearReferenceBtn.disabled = false;
+    };
+    reader.readAsText(file);
+  }
+
+  function clearReferenceLayer() {
+    referenceLayerGroup.clearLayers();
+    map.removeLayer(referenceLayerGroup);
+    referenceFileNameEl.textContent = "No reference layer";
+    clearReferenceBtn.disabled = true;
+    referenceFileInput.value = "";
   }
 
   function buildEntries(parsed) {

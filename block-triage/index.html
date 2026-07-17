@@ -25,6 +25,12 @@
           <input type="checkbox" id="quick-exclude-checkbox">
           Quick exclude mode (click map to exclude, no popup)
         </label>
+        <span id="reference-controls">
+          <label class="btn" for="reference-file-input">Load reference layer&hellip;</label>
+          <input type="file" id="reference-file-input" accept=".geojson,.json,application/geo+json,application/json">
+          <span id="reference-file-name" class="muted">No reference layer</span>
+          <button id="clear-reference-btn" disabled title="Remove the reference layer">Clear</button>
+        </span>
       </div>
     </header>
 

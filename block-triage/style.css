@@ -45,7 +45,15 @@ html, body {
   flex-wrap: wrap;
 }
 
-#file-input { display: none; }
+#file-input, #reference-file-input { display: none; }
+
+#reference-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding-left: 0.75rem;
+  border-left: 1px solid var(--border);
+}
 
 .btn, button {
   cursor: pointer;
