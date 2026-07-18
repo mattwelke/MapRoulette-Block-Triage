@@ -50,6 +50,7 @@
     maxZoom: 20,
     attribution: "&copy; OpenStreetMap contributors",
   }).addTo(map);
+  window.__blockTriageMobileMap = map; // test hook only - lets tests confirm invalidateSize() actually ran
   let currentLayer = null;
 
   loadBtn.addEventListener("click", loadQueue);
@@ -180,6 +181,15 @@
 
     triageScreen.hidden = false;
     doneScreen.hidden = true;
+    // The map is created while this screen is still hidden (display:none), so
+    // Leaflet measures a zero-size container on the very first task and
+    // caches that; invalidateSize() re-measures it now that it's visible.
+    // Cheap enough to just always call it here (also covers e.g. an
+    // orientation change on a phone between tasks). The rAF follow-up is a
+    // safety net for browsers that settle the layout a frame later than this
+    // synchronous style change.
+    map.invalidateSize();
+    requestAnimationFrame(() => map.invalidateSize());
 
     const item = queue[currentIndex];
     progressEl.textContent = `${currentIndex + 1} of ${queue.length}`;
