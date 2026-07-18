@@ -218,6 +218,7 @@
   const mrStatusEl = document.getElementById("mr-status");
   const mrLoadChallengeBtn = document.getElementById("mr-load-challenge-btn");
   const mrLoadStatusEl = document.getElementById("mr-load-status");
+  const mrLockPollStatusEl = document.getElementById("mr-lock-poll-status");
   const mrLiveSyncCheckbox = document.getElementById("mr-live-sync-checkbox");
   const mrLivePanel = document.getElementById("mr-live-panel");
   const mrLiveBanner = document.getElementById("mr-live-banner");
@@ -231,6 +232,7 @@
   mrLiveSyncCheckbox.checked = mrLiveSync;
   updateMrLiveSyncUI();
   updateMrQueueButton();
+  scheduleMrLockPoll();
   mrQueueBtn.addEventListener("click", processMrDeleteQueue);
 
   mrLiveSyncCheckbox.addEventListener("change", () => {
@@ -730,42 +732,81 @@
     return mrCurrentUserId;
   }
 
+  function setMrLockPollStatus(text, cls) {
+    if (!mrLockPollStatusEl) return;
+    mrLockPollStatusEl.textContent = text;
+    mrLockPollStatusEl.className = cls || "muted";
+  }
+
   async function refreshMrLockState() {
     if (!mrApiKey || !mrChallengeId) return;
-    await mrCurrentUser();
-    const data = await mrRequest(`/challenge/${encodeURIComponent(mrChallengeId)}/taskMarkers`);
-    const markers = [];
-    if (data && Array.isArray(data.markers)) markers.push(...data.markers);
-    if (data && Array.isArray(data.overlaps)) {
-      data.overlaps.forEach((o) => {
-        if (o && Array.isArray(o.tasks)) markers.push(...o.tasks);
-      });
-    }
-    const lockedByTaskId = new Map();
-    markers.forEach((m) => {
-      if (m && m.id != null) lockedByTaskId.set(m.id, m.lockedBy != null ? m.lockedBy : null);
-    });
-
-    let changed = false;
-    entries.forEach((entry) => {
-      if (entry.mrTaskId == null) return;
-      const rawLockedBy = lockedByTaskId.has(entry.mrTaskId) ? lockedByTaskId.get(entry.mrTaskId) : null;
-      const activeLockedBy = rawLockedBy != null && rawLockedBy !== mrCurrentUserId ? rawLockedBy : null;
-      if (entry.mrActiveLockedBy !== activeLockedBy) {
-        entry.mrActiveLockedBy = activeLockedBy;
-        if (entry.layer) entry.layer.setStyle(styleFor(entry));
-        changed = true;
+    setMrLockPollStatus("Checking for locked tasks…");
+    try {
+      await mrCurrentUser();
+      const data = await mrRequest(`/challenge/${encodeURIComponent(mrChallengeId)}/taskMarkers`);
+      const markers = [];
+      if (data && Array.isArray(data.markers)) markers.push(...data.markers);
+      if (data && Array.isArray(data.overlaps)) {
+        data.overlaps.forEach((o) => {
+          if (o && Array.isArray(o.tasks)) markers.push(...o.tasks);
+        });
       }
-    });
-    if (changed) renderList();
+      const lockedByTaskId = new Map();
+      markers.forEach((m) => {
+        if (m && m.id != null) lockedByTaskId.set(m.id, m.lockedBy != null ? m.lockedBy : null);
+      });
+
+      let changed = false;
+      let activeLockCount = 0;
+      entries.forEach((entry) => {
+        if (entry.mrTaskId == null) return;
+        const rawLockedBy = lockedByTaskId.has(entry.mrTaskId) ? lockedByTaskId.get(entry.mrTaskId) : null;
+        const activeLockedBy = rawLockedBy != null && rawLockedBy !== mrCurrentUserId ? rawLockedBy : null;
+        if (activeLockedBy != null) activeLockCount++;
+        if (entry.mrActiveLockedBy !== activeLockedBy) {
+          entry.mrActiveLockedBy = activeLockedBy;
+          if (entry.layer) entry.layer.setStyle(styleFor(entry));
+          changed = true;
+        }
+      });
+      if (changed) renderList();
+
+      // Multiple things can independently trigger a refresh (a poll, a
+      // recheck-before-delete, the challenge ID field's own change event
+      // re-firing on blur, etc), so by the time this particular call
+      // resolves, live sync could've been turned off (or the challenge/data
+      // cleared) in the meantime. Don't clobber the "paused" message with a
+      // stale result in that case - the data merge above is still harmless
+      // to keep, but the status line should reflect current reality.
+      if (mrLockPollEligible()) {
+        setMrLockPollStatus(
+          `Last checked ${new Date().toLocaleTimeString()} — ` +
+            (activeLockCount > 0
+              ? `${activeLockCount} task${activeLockCount === 1 ? "" : "s"} currently locked by another user.`
+              : `no tasks currently locked by another user.`)
+        );
+      }
+    } catch (err) {
+      if (mrLockPollEligible()) {
+        setMrLockPollStatus(`Lock check failed: ${err.message} (will retry)`, "mr-error");
+      }
+      throw err;
+    }
   }
 
   // Jittered so that if several people happen to have this tool open on the
   // same challenge, their background polls don't all land on the API at
   // exactly the same moment every time.
+  function mrLockPollEligible() {
+    return mrLiveSync && !!mrChallengeId && entries.size > 0;
+  }
+
   function scheduleMrLockPoll() {
     clearTimeout(mrLockPollTimer);
-    if (!mrLiveSync || !mrChallengeId || entries.size === 0) return;
+    if (!mrLockPollEligible()) {
+      setMrLockPollStatus("Task lock checks paused (need live sync on, a Challenge ID, and some areas loaded).");
+      return;
+    }
     const jitter = Math.round((Math.random() * 2 - 1) * MR_LOCK_POLL_JITTER_MS);
     mrLockPollTimer = setTimeout(async () => {
       try {
@@ -783,7 +824,10 @@
   // challenge ID.
   function kickMrLockPoll() {
     clearTimeout(mrLockPollTimer);
-    if (!mrLiveSync || !mrChallengeId || entries.size === 0) return;
+    if (!mrLockPollEligible()) {
+      setMrLockPollStatus("Task lock checks paused (need live sync on, a Challenge ID, and some areas loaded).");
+      return;
+    }
     refreshMrLockState().catch(() => {});
     scheduleMrLockPoll();
   }

@@ -260,6 +260,11 @@ worth understanding about how this works:
   has this open right now" in a static GeoJSON file), so it has no effect
   with live sync off, and turning live sync off immediately clears any
   such styling rather than leaving it stale on screen.
+- A **"Task lock checks: ..."** line in the MapRoulette panel shows when
+  polling last ran and what it found (or that it's paused, and why) -
+  since with nobody actively working on anything, the feature can
+  otherwise be invisible. It updates every time a check runs, including
+  the on-demand rechecks right before a delete.
 
 **Quick queue-delete mode** (checkbox in the MapRoulette panel, only
 relevant with live sync on) mirrors **Quick exclude mode** but for the

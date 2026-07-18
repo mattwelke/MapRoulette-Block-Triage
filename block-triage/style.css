@@ -233,6 +233,7 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 
 #mr-status,
 #mr-load-status,
+#mr-lock-poll-status,
 #mr-queue-status {
   margin-top: 0.4rem;
   font-size: 0.8rem;
@@ -244,7 +245,8 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 }
 
 #mr-status.mr-error,
-#mr-load-status.mr-error {
+#mr-load-status.mr-error,
+#mr-lock-poll-status.mr-error {
   color: #c62828;
 }
 
