@@ -325,3 +325,34 @@ close to 0 for a long thin shape, regardless of absolute size.
   gap splitting leaves behind), then shrinks back — so it reliably
   reverses a split, but won't bridge areas with a real, larger gap
   between them.
+
+## Testing
+
+The app itself has no dependencies to install — but the test suite
+(`tests/`) is written with [Playwright](https://playwright.dev) and drives
+`index.html` directly as a `file://` URL, the same way you'd use the app
+by hand. Install once, then run:
+
+```sh
+npm install
+npm test
+```
+
+`npm test` runs every file in `tests/` in sequence and prints a pass/fail
+summary (`tests/run-all.js`). To run a single test while working on
+something, just `node tests/some-test.js` directly — each one exits
+non-zero on failure.
+
+Two environment variables configure the browser launch, since the exact
+Chromium binary and any outbound-proxy requirement are specific to your
+machine, not something the repo should hardcode:
+- `PW_EXECUTABLE_PATH` — path to a Chromium binary (omit to use
+  Playwright's own bundled browser, which `npm install` downloads for you)
+- `PW_PROXY_SERVER` — e.g. `http://127.0.0.1:33007`, if your network needs
+  one (omit otherwise)
+
+MapRoulette-facing tests never talk to the real API — they use
+Playwright's request interception (`page.route(...)`) against synthetic
+fixtures in `tests/fixtures/` (a small hand-built challenge export with a
+predictable mix of locked/unlocked tasks) to simulate MapRoulette's
+responses, so they're deterministic and don't need real credentials.

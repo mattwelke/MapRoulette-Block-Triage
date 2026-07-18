@@ -1,0 +1,11 @@
+{
+  "name": "block-triage-tests",
+  "private": true,
+  "description": "Playwright test suite for Block Triage (the app itself has no build step or dependencies - this is dev-only tooling).",
+  "scripts": {
+    "test": "node tests/run-all.js"
+  },
+  "devDependencies": {
+    "playwright": "^1.61.1"
+  }
+}

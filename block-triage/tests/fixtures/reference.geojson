@@ -1,0 +1,35 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {"name": "ref-polygon"},
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[
+          [-79.7975, 43.4525],
+          [-79.7965, 43.4525],
+          [-79.7965, 43.4535],
+          [-79.7975, 43.4535],
+          [-79.7975, 43.4525]
+        ]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {"name": "ref-line"},
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [[-79.799, 43.451], [-79.796, 43.454]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {"name": "ref-point"},
+      "geometry": {
+        "type": "Point",
+        "coordinates": [-79.798, 43.4545]
+      }
+    }
+  ]
+}
