@@ -1,10 +1,10 @@
 const fs = require("fs");
-const { launch, indexUrl, sampleDataPath, tmpPath, assert, runTest } = require("./support");
+const { launch, appUrl, sampleDataPath, tmpPath, assert, runTest } = require("./support");
 
 runTest("persist-kept: _blockTriageStatus round-trips without localStorage", async () => {
   const { browser, page } = await launch();
 
-  await page.goto(indexUrl());
+  await page.goto(appUrl());
   await page.waitForTimeout(500);
   await page.setInputFiles("#file-input", sampleDataPath("blocks.geojson"));
   await page.waitForTimeout(4000);
@@ -28,7 +28,7 @@ runTest("persist-kept: _blockTriageStatus round-trips without localStorage", asy
   const context2 = await browser.newContext();
   const page2 = await context2.newPage();
   await page2.setViewportSize({ width: 1400, height: 900 });
-  await page2.goto(indexUrl());
+  await page2.goto(appUrl());
   await page2.waitForTimeout(500);
   await page2.setInputFiles("#file-input", downloadPath);
   await page2.waitForTimeout(4000);

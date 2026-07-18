@@ -1,4 +1,4 @@
-const { launch, assertNoPageErrors, indexUrl, fixturePath, assert, runTest } = require("./support");
+const { launch, assertNoPageErrors, appUrl, fixturePath, assert, runTest } = require("./support");
 
 runTest("maproulette-split: local split succeeds even when the MapRoulette sync fails", async () => {
   const { browser, page } = await launch();
@@ -15,7 +15,7 @@ runTest("maproulette-split: local split succeeds even when the MapRoulette sync 
     await route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ status: "Error" }) });
   });
 
-  await page.goto(indexUrl());
+  await page.goto(appUrl());
   await page.waitForTimeout(500);
   await page.click("#mr-live-sync-checkbox");
   await page.waitForTimeout(200);

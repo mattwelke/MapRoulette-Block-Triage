@@ -1,4 +1,4 @@
-const { launch, assertNoPageErrors, indexUrl, sampleDataPath, assert, runTest } = require("./support");
+const { launch, assertNoPageErrors, appUrl, sampleDataPath, assert, runTest } = require("./support");
 
 runTest("mr-lock-poll-jitter: the background poll interval varies, not a fixed 60000ms", async () => {
   const { browser, page } = await launch();
@@ -18,7 +18,7 @@ runTest("mr-lock-poll-jitter: the background poll interval varies, not a fixed 6
     await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ markers: [], overlaps: [] }) });
   });
 
-  await page.goto(indexUrl());
+  await page.goto(appUrl());
   await page.waitForTimeout(300);
   await page.click("#mr-live-sync-checkbox");
   await page.fill("#mr-api-key-input", "fake-test-key");

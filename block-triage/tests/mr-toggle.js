@@ -1,4 +1,4 @@
-const { launch, assertNoPageErrors, indexUrl, fixturePath, assert, assertEqual, runTest } = require("./support");
+const { launch, assertNoPageErrors, appUrl, fixturePath, assert, assertEqual, runTest } = require("./support");
 
 runTest("mr-toggle: live sync off is pure-local, on reveals MR actions, state persists", async () => {
   const { browser, page } = await launch();
@@ -8,7 +8,7 @@ runTest("mr-toggle: live sync off is pure-local, on reveals MR actions, state pe
     await dialog.dismiss();
   });
 
-  await page.goto(indexUrl());
+  await page.goto(appUrl());
   await page.waitForTimeout(500);
 
   assert(!(await page.$eval("#mr-live-sync-checkbox", (el) => el.checked)), "live sync should default to off");

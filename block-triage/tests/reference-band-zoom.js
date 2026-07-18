@@ -1,10 +1,10 @@
-const { launch, assertNoPageErrors, indexUrl, fixturePath, assert, runTest } = require("./support");
+const { launch, assertNoPageErrors, appUrl, fixturePath, assert, runTest } = require("./support");
 
 runTest("reference-band-zoom: band only renders past the zoom threshold", async () => {
   const { browser, page } = await launch();
   page.on("dialog", async (dialog) => await dialog.accept());
 
-  await page.goto(indexUrl());
+  await page.goto(appUrl());
   await page.waitForTimeout(500);
   await page.click("#new-blank-btn");
   await page.waitForTimeout(300);

@@ -1,4 +1,4 @@
-const { launch, assertNoPageErrors, indexUrl, sampleDataPath, assert, assertEqual, runTest } = require("./support");
+const { launch, assertNoPageErrors, appUrl, sampleDataPath, assert, assertEqual, runTest } = require("./support");
 
 runTest("mr-lock-poll-status-ui: the panel reflects poll state, and never shows stale info", async () => {
   const { browser, page } = await launch();
@@ -11,7 +11,7 @@ runTest("mr-lock-poll-status-ui: the panel reflects poll state, and never shows 
     });
   });
 
-  await page.goto(indexUrl());
+  await page.goto(appUrl());
   await page.waitForTimeout(300);
   assert(
     (await page.$eval("#mr-lock-poll-status", (el) => el.textContent)).includes("paused"),

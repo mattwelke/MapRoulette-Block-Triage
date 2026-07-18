@@ -1,4 +1,4 @@
-const { launch, assertNoPageErrors, indexUrl, fixturePath, assert, assertEqual, runTest } = require("./support");
+const { launch, assertNoPageErrors, appUrl, fixturePath, assert, assertEqual, runTest } = require("./support");
 
 runTest("mr-queue-process: bulk confirm, paced sequential deletes, partial failure handling", async () => {
   const { browser, page } = await launch();
@@ -20,7 +20,7 @@ runTest("mr-queue-process: bulk confirm, paced sequential deletes, partial failu
     }
   });
 
-  await page.goto(indexUrl());
+  await page.goto(appUrl());
   await page.waitForTimeout(500);
   await page.click("#mr-live-sync-checkbox");
   await page.waitForTimeout(200);

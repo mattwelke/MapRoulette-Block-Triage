@@ -1,4 +1,4 @@
-const { launch, assertNoPageErrors, indexUrl, assertEqual, runTest } = require("./support");
+const { launch, assertNoPageErrors, appUrl, assertEqual, runTest } = require("./support");
 
 runTest("mr-from-header: every MapRoulette request carries the From header", async () => {
   const { browser, page } = await launch();
@@ -13,7 +13,7 @@ runTest("mr-from-header: every MapRoulette request carries the From header", asy
     });
   });
 
-  await page.goto(indexUrl());
+  await page.goto(appUrl());
   await page.waitForTimeout(500);
   await page.click("#mr-live-sync-checkbox");
   await page.waitForTimeout(200);

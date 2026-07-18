@@ -1,9 +1,9 @@
-const { launch, assertNoPageErrors, indexUrl, sampleDataPath, assert, runTest } = require("./support");
+const { launch, assertNoPageErrors, appUrl, sampleDataPath, assert, runTest } = require("./support");
 
 runTest("quick-exclude: map-click toggling, popup carve-out", async () => {
   const { browser, page } = await launch();
 
-  await page.goto(indexUrl());
+  await page.goto(appUrl());
   await page.waitForTimeout(500);
   await page.setInputFiles("#file-input", sampleDataPath("blocks.geojson"));
   await page.waitForTimeout(4000);

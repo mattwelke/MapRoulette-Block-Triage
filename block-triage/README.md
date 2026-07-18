@@ -8,10 +8,24 @@ the challenge or feed the areas into your address-import workflow.
 
 It runs entirely in your browser. No build step, no server, no account.
 
-## Usage
+## Which interface?
 
-1. Open `index.html` directly in a browser (double-click it, or
-   `open index.html` / drag it into a browser window).
+Opening `index.html` (double-click it, or `open index.html` / drag it into
+a browser window) asks which interface you want:
+
+- **Full tool** (`app.html`) — the map-based review workflow described
+  below. Best on a laptop/desktop screen.
+- **Quick mobile triage** (`mobile.html`) — a phone-friendly one-task-at-a-
+  time view for quickly clearing out small junk tasks from a MapRoulette
+  challenge: smallest-area tasks first, a big **Delete** and **Next**
+  button, and a quick **Undo**. See
+  [Quick mobile triage](#quick-mobile-triage) below. It's a separate,
+  minimal page — good for bookmarking directly on a phone's home screen if
+  you don't want to see the chooser every time.
+
+## Usage (full tool)
+
+1. Open `app.html` (or get there via `index.html`'s chooser).
 2. Load some areas to review, one of three ways:
    - Click **Open GeoJSON…** and pick your file (a `FeatureCollection` of
      `Polygon` features — see `sample-data/blocks.geojson` for an example,
@@ -297,6 +311,37 @@ Some things worth knowing:
   header, so it's identifiable on MapRoulette's end as coming from this
   tool rather than the official site/app.
 
+## Quick mobile triage
+
+`mobile.html` is a separate, minimal page for a specific fast workflow:
+clearing small junk tasks out of a MapRoulette challenge one at a time,
+from a phone. It has nothing to do with GeoJSON files or the map-review
+workflow above — it talks to the MapRoulette API directly.
+
+1. Enter your **API key** and **Challenge ID** and tap **Load smallest
+   tasks**. (These are stored the same way as the full tool's, so if
+   you're on the same device/browser as an existing session, they're
+   already filled in and it loads automatically — the whole point of this
+   view is being fast.) Tasks that are already `Fixed`/`Already_Fixed` are
+   left out entirely; there's nothing to do with those here.
+2. It shows the single smallest-area remaining task, with a small map so
+   you can see what you're about to act on, and two big buttons:
+   - **Delete** — deletes the task immediately. No confirmation dialog —
+     this view is built for speed — but the button starts disabled for
+     about a second every time a new task is shown, specifically so a
+     fast double-tap or a tap that lands before you've actually looked at
+     the new one can't delete the wrong task.
+   - **Next** — moves on without deleting anything.
+3. After a delete, an **Undo** banner appears for a few seconds. Since a
+   deleted MapRoulette task can't be restored as the same task, Undo works
+   by recreating a brand new task with the exact same geometry the
+   deleted one had (kept in memory just for this purpose) — so a mis-tap
+   is a tap away from fixed, not a trip back to the desktop tool. Only the
+   single most recent delete is undoable; a second delete replaces it.
+4. Reloading the page re-fetches the challenge from scratch (smallest
+   first again) — there's no session to resume, by design. It's meant for
+   quick bursts of triage, not as a persistent queue.
+
 ## Why compactness, not just area
 
 Some artifacts (thin slivers between the two carriageways of a divided
@@ -331,8 +376,9 @@ close to 0 for a long thin shape, regardless of absolute size.
 
 The app itself has no dependencies to install — but the test suite
 (`tests/`) is written with [Playwright](https://playwright.dev) and drives
-`index.html` directly as a `file://` URL, the same way you'd use the app
-by hand. Install once, then run:
+the app's HTML files directly as `file://` URLs (mostly `app.html`, plus
+`mobile.html` and `index.html` for their own features), the same way
+you'd use the app by hand. Install once, then run:
 
 ```sh
 npm install

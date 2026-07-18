@@ -1,7 +1,9 @@
 // Shared helpers for the Playwright test scripts in this directory.
 //
-// These tests drive index.html directly as a file:// URL - there's no build
-// step or dev server for this app, so that's also how you'd use it by hand.
+// These tests drive the app's HTML files directly as file:// URLs - there's
+// no build step or dev server for this app, so that's also how you'd use it
+// by hand. index.html itself is just the chooser page (full tool vs. mobile
+// quick-triage); appUrl()/mobileUrl() point at the two destinations.
 //
 // Browser launch is configurable via environment variables since the exact
 // Chromium path and any outbound-proxy requirement are specific to whatever
@@ -18,8 +20,16 @@ const { chromium } = require("playwright");
 
 const REPO_ROOT = path.join(__dirname, "..");
 
-function indexUrl() {
+function landingUrl() {
   return pathToFileURL(path.join(REPO_ROOT, "index.html")).href;
+}
+
+function appUrl() {
+  return pathToFileURL(path.join(REPO_ROOT, "app.html")).href;
+}
+
+function mobileUrl() {
+  return pathToFileURL(path.join(REPO_ROOT, "mobile.html")).href;
 }
 
 function sampleDataPath(name) {
@@ -71,6 +81,17 @@ function assertNoPageErrors(page) {
   }
 }
 
+// Checks actual rendered visibility (computed display), not just the
+// `hidden` DOM property - a CSS rule with display:flex/block can silently
+// override the browser's default [hidden]{display:none} and the property
+// alone won't catch that (see mobile.css's [hidden] overrides).
+async function assertRenderedVisibility(page, selector, expectedVisible, message) {
+  const isVisible = await page.$eval(selector, (el) => getComputedStyle(el).display !== "none");
+  if (isVisible !== expectedVisible) {
+    throw new Error(`Assertion failed: ${message} (expected rendered-visible=${expectedVisible}, got ${isVisible})`);
+  }
+}
+
 function assert(condition, message) {
   if (!condition) {
     throw new Error("Assertion failed: " + message);
@@ -100,7 +121,9 @@ function runTest(name, fn) {
 
 module.exports = {
   REPO_ROOT,
-  indexUrl,
+  landingUrl,
+  appUrl,
+  mobileUrl,
   sampleDataPath,
   fixturePath,
   tmpPath,
@@ -109,5 +132,6 @@ module.exports = {
   assertNoPageErrors,
   assert,
   assertEqual,
+  assertRenderedVisibility,
   runTest,
 };

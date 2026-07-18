@@ -1,4 +1,4 @@
-const { launch, assertNoPageErrors, indexUrl, fixturePath, assert, assertEqual, runTest } = require("./support");
+const { launch, assertNoPageErrors, appUrl, fixturePath, assert, assertEqual, runTest } = require("./support");
 
 runTest("mr-queue: Remove queues instead of deleting immediately, Cancel dequeues", async () => {
   const { browser, page } = await launch();
@@ -8,7 +8,7 @@ runTest("mr-queue: Remove queues instead of deleting immediately, Cancel dequeue
     await dialog.accept();
   });
 
-  await page.goto(indexUrl());
+  await page.goto(appUrl());
   await page.waitForTimeout(500);
   await page.click("#mr-live-sync-checkbox");
   await page.waitForTimeout(200);

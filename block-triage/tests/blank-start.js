@@ -1,11 +1,11 @@
 const fs = require("fs");
-const { launch, assertNoPageErrors, indexUrl, tmpPath, assert, assertEqual, runTest } = require("./support");
+const { launch, assertNoPageErrors, appUrl, tmpPath, assert, assertEqual, runTest } = require("./support");
 
 runTest("blank-start: New (blank) session, draw-from-scratch, confirm-before-discard", async () => {
   const { browser, page } = await launch();
   page.on("dialog", async (dialog) => await dialog.accept());
 
-  await page.goto(indexUrl());
+  await page.goto(appUrl());
   await page.waitForTimeout(500);
 
   assert(await page.$eval("#export-btn", (el) => el.disabled), "export should start disabled with nothing loaded");

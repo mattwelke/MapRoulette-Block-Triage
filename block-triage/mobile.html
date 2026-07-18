@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Block Triage - Quick Triage</title>
+<link rel="stylesheet" href="vendor/leaflet.css">
+<link rel="stylesheet" href="mobile.css">
+</head>
+<body>
+  <div id="app">
+    <header id="topbar">
+      <a id="back-link" href="index.html" title="Back to interface chooser">←</a>
+      <h1>Quick Triage</h1>
+      <span id="progress"></span>
+    </header>
+
+    <div id="setup-screen">
+      <h2>Connect to a MapRoulette challenge</h2>
+      <label>
+        API key
+        <input type="password" id="api-key-input" autocomplete="off" placeholder="paste your apiKey">
+      </label>
+      <label>
+        Challenge ID
+        <input type="number" id="challenge-id-input" placeholder="e.g. 55881">
+      </label>
+      <button id="load-btn">Load smallest tasks</button>
+      <div id="setup-status" class="muted"></div>
+    </div>
+
+    <div id="triage-screen" hidden>
+      <div id="map"></div>
+      <div id="task-info">
+        <div id="task-area"></div>
+        <div id="task-id" class="muted"></div>
+      </div>
+      <div id="action-status" class="muted"></div>
+      <div id="buttons">
+        <button id="delete-btn" class="danger">🗑️ Delete</button>
+        <button id="next-btn">Next ➡️</button>
+      </div>
+    </div>
+
+    <div id="done-screen" hidden>
+      <h2>All done 🎉</h2>
+      <p>No more unresolved tasks left to review.</p>
+    </div>
+
+    <div id="undo-banner" hidden>
+      <span id="undo-text"></span>
+      <button id="undo-btn">Undo</button>
+      <button id="undo-dismiss-btn" title="Dismiss">✕</button>
+    </div>
+  </div>
+
+  <script src="vendor/leaflet.js"></script>
+  <script src="vendor/turf.min.js"></script>
+  <script src="mobile.js"></script>
+</body>
+</html>

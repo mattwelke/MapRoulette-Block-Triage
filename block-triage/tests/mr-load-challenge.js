@@ -1,5 +1,5 @@
 const fs = require("fs");
-const { launch, assertNoPageErrors, indexUrl, tmpPath, assert, assertEqual, runTest } = require("./support");
+const { launch, assertNoPageErrors, appUrl, tmpPath, assert, assertEqual, runTest } = require("./support");
 
 function makeTask(id, status, lng, lat) {
   return {
@@ -60,7 +60,7 @@ runTest("mr-load-challenge: pull a challenge straight from the API, no file uplo
     await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(allTasks.slice(start, start + limit)) });
   });
 
-  await page.goto(indexUrl());
+  await page.goto(appUrl());
   await page.waitForTimeout(500);
   await page.click("#mr-live-sync-checkbox");
   await page.waitForTimeout(200);

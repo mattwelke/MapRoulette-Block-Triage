@@ -1,4 +1,4 @@
-const { launch, assertNoPageErrors, indexUrl, assert, assertEqual, runTest } = require("./support");
+const { launch, assertNoPageErrors, appUrl, assert, assertEqual, runTest } = require("./support");
 
 function makeTask(id, status, lng, lat) {
   return {
@@ -93,7 +93,7 @@ runTest("mr-active-lock: tasks currently checked out on MapRoulette are locked, 
     }
   });
 
-  await page.goto(indexUrl());
+  await page.goto(appUrl());
   await page.waitForTimeout(500);
   await page.click("#mr-live-sync-checkbox");
   await page.waitForTimeout(200);

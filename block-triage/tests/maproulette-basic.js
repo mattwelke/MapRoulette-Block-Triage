@@ -1,11 +1,11 @@
 const fs = require("fs");
-const { launch, assertNoPageErrors, indexUrl, fixturePath, tmpPath, assert, assertEqual, runTest } = require("./support");
+const { launch, assertNoPageErrors, appUrl, fixturePath, tmpPath, assert, assertEqual, runTest } = require("./support");
 
 runTest("maproulette-basic: API key persistence, challenge auto-detect, add/remove labels, export round-trip", async () => {
   const { browser, page } = await launch();
   page.on("dialog", async (dialog) => await dialog.accept());
 
-  await page.goto(indexUrl());
+  await page.goto(appUrl());
   await page.waitForTimeout(500);
   await page.click("#mr-live-sync-checkbox");
   await page.waitForTimeout(200);

@@ -1,5 +1,5 @@
 const fs = require("fs");
-const { launch, assertNoPageErrors, indexUrl, fixturePath, tmpPath, assert, assertEqual, runTest } = require("./support");
+const { launch, assertNoPageErrors, appUrl, fixturePath, tmpPath, assert, assertEqual, runTest } = require("./support");
 
 runTest("mr-remove-purges: a successfully-deleted task disappears from map/list/stats/export", async () => {
   const { browser, page } = await launch();
@@ -12,7 +12,7 @@ runTest("mr-remove-purges: a successfully-deleted task disappears from map/list/
     await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ status: "OK" }) });
   });
 
-  await page.goto(indexUrl());
+  await page.goto(appUrl());
   await page.waitForTimeout(500);
   await page.click("#mr-live-sync-checkbox");
   await page.waitForTimeout(200);

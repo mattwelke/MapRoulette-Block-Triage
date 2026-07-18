@@ -1,10 +1,10 @@
-const { launch, assertNoPageErrors, indexUrl, fixturePath, assert, runTest } = require("./support");
+const { launch, assertNoPageErrors, appUrl, fixturePath, assert, runTest } = require("./support");
 
 runTest("combine: merge split pieces back, undo/redo, guard rails", async () => {
   const { browser, page } = await launch();
   page.on("dialog", async (dialog) => await dialog.accept());
 
-  await page.goto(indexUrl());
+  await page.goto(appUrl());
   await page.waitForTimeout(500);
   await page.setInputFiles("#file-input", fixturePath("square.geojson"));
   await page.waitForTimeout(1500);
