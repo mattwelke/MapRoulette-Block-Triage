@@ -3,9 +3,6 @@ const { launch, assertNoPageErrors, indexUrl, sampleDataPath, assert, assertEqua
 runTest("mr-lock-poll-status-ui: the panel reflects poll state, and never shows stale info", async () => {
   const { browser, page } = await launch();
 
-  await page.route("https://maproulette.org/api/v2/user/whoami", async (route) => {
-    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ id: 1, osmProfile: {} }) });
-  });
   await page.route("https://maproulette.org/api/v2/challenge/**/taskMarkers", async (route) => {
     await route.fulfill({
       status: 200,

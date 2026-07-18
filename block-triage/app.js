@@ -27,19 +27,20 @@
     return rawStatus ? String(rawStatus).replace(/_/g, " ") : "unknown";
   }
 
-  // The other reason an area can be locked: someone else currently has its
-  // MapRoulette task open (locked via the site's own "start working" flow,
-  // or another API client). Unlike the status-based lock above, this is only
-  // ever known live - there's no way to embed it in a static file - so it
-  // only applies while live sync is on, and only reflects however stale the
-  // last poll/recheck happened to be (MapRoulette's API has no push
-  // mechanism for this; see refreshMrLockState below).
+  // The other reason an area can be locked: its MapRoulette task is
+  // currently held open (locked via the site's own "start working" flow, or
+  // another API client) - by anyone, including whoever owns the API key
+  // configured here. Unlike the status-based lock above, this is only ever
+  // known live - there's no way to embed it in a static file - so it only
+  // applies while live sync is on, and only reflects however stale the last
+  // poll/recheck happened to be (MapRoulette's API has no push mechanism for
+  // this; see refreshMrLockState below).
   function mrBlockReason(entry) {
     if (entry.mrLocked) {
       return `already "${formatMrTaskStatus(entry.mrTaskStatus)}" and is locked`;
     }
     if (mrLiveSync && entry.mrActiveLockedBy != null) {
-      return `currently being worked on by another MapRoulette user and is locked`;
+      return `currently checked out on MapRoulette and is locked`;
     }
     return null;
   }
@@ -81,7 +82,6 @@
   const MR_LOCK_POLL_BASE_MS = 60000;
   const MR_LOCK_POLL_JITTER_MS = 5000; // vary +/- up to 5s
   let mrLockPollTimer = null;
-  let mrCurrentUserId = null; // cached from /user/whoami so we can tell "someone else" from "me"
 
   /** @type {Map<string, {id:string, idx:number, feature:object, layer:L.Layer, area:number, compactness:number, status:string}>} */
   let entries = new Map();
@@ -716,21 +716,13 @@
     }
   }
 
-  // --- MapRoulette task locks (someone else actively working on a task) ---
+  // --- MapRoulette task locks (someone actively working on a task) ---
   //
   // There's no push/webhook mechanism in MapRoulette's API for this, so the
   // only option is polling. GET /challenge/{id}/tasks (used above) doesn't
   // carry lock info at all - it only shows up on the lighter-weight
   // taskMarkers endpoint, which conveniently covers the whole challenge in
   // one call.
-
-  async function mrCurrentUser() {
-    if (mrCurrentUserId == null) {
-      const me = await mrRequest("/user/whoami");
-      mrCurrentUserId = me && me.id != null ? me.id : null;
-    }
-    return mrCurrentUserId;
-  }
 
   function setMrLockPollStatus(text, cls) {
     if (!mrLockPollStatusEl) return;
@@ -742,7 +734,6 @@
     if (!mrApiKey || !mrChallengeId) return;
     setMrLockPollStatus("Checking for locked tasks…");
     try {
-      await mrCurrentUser();
       const data = await mrRequest(`/challenge/${encodeURIComponent(mrChallengeId)}/taskMarkers`);
       const markers = [];
       if (data && Array.isArray(data.markers)) markers.push(...data.markers);
@@ -760,8 +751,7 @@
       let activeLockCount = 0;
       entries.forEach((entry) => {
         if (entry.mrTaskId == null) return;
-        const rawLockedBy = lockedByTaskId.has(entry.mrTaskId) ? lockedByTaskId.get(entry.mrTaskId) : null;
-        const activeLockedBy = rawLockedBy != null && rawLockedBy !== mrCurrentUserId ? rawLockedBy : null;
+        const activeLockedBy = lockedByTaskId.has(entry.mrTaskId) ? lockedByTaskId.get(entry.mrTaskId) : null;
         if (activeLockedBy != null) activeLockCount++;
         if (entry.mrActiveLockedBy !== activeLockedBy) {
           entry.mrActiveLockedBy = activeLockedBy;
@@ -782,8 +772,8 @@
         setMrLockPollStatus(
           `Last checked ${new Date().toLocaleTimeString()} — ` +
             (activeLockCount > 0
-              ? `${activeLockCount} task${activeLockCount === 1 ? "" : "s"} currently locked by another user.`
-              : `no tasks currently locked by another user.`)
+              ? `${activeLockCount} task${activeLockCount === 1 ? "" : "s"} currently checked out on MapRoulette.`
+              : `no tasks currently checked out on MapRoulette.`)
         );
       }
     } catch (err) {
@@ -1106,7 +1096,7 @@
           ? `<div class="mr-locked-note">&#128274; ${
               entry.mrLocked
                 ? `MapRoulette status: <strong>${formatMrTaskStatus(entry.mrTaskStatus)}</strong>`
-                : `Currently being worked on by another MapRoulette user`
+                : `Currently checked out on MapRoulette`
             } — locked. Split and remove are disabled while this is the case.</div>`
           : ""
       }

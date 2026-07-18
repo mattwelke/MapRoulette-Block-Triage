@@ -14,9 +14,6 @@ runTest("mr-lock-poll-jitter: the background poll interval varies, not a fixed 6
     };
   });
 
-  await page.route("https://maproulette.org/api/v2/user/whoami", async (route) => {
-    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ id: 1, osmProfile: {} }) });
-  });
   await page.route("https://maproulette.org/api/v2/challenge/**/taskMarkers", async (route) => {
     await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ markers: [], overlaps: [] }) });
   });

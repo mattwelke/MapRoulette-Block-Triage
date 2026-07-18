@@ -231,20 +231,24 @@ already resolved. Locked areas:
   from the file's data, not a live lookup, so it's consistent whether
   you're just browsing a file or actively syncing.
 
-**Locked (in-progress elsewhere) tasks.** While live sync is on, this tool
-also watches for another MapRoulette user actively having a task's page
-open (i.e. they've locked it by starting work on it there, or via another
-API client) — shown as a distinct brown, separate from the grey of an
+**Locked (checked out right now) tasks.** While live sync is on, this tool
+also watches for a task currently being checked out on MapRoulette (i.e.
+someone's locked it by starting work on it there, or via another API
+client) — shown as a distinct brown, separate from the grey of an
 already-resolved task, since it's a temporary condition rather than a
 permanent one. The same restrictions apply (no split/combine/queue, but
 you can still open the popup and use Exclude/Keep/Reset). A few things
 worth understanding about how this works:
+- Any active lock counts, including one held by the same MapRoulette
+  account as the API key configured here — e.g. if you have the task open
+  in the MapRoulette site yourself. This is deliberately simple: it just
+  checks whether `lockedBy` is set at all, with no "is it me" carve-out.
 - MapRoulette's API has no push/webhook mechanism for lock changes, so
   this can only ever be as fresh as the last check — there's no way to
-  react the instant someone else opens a task. This tool polls in the
-  background every ~60 seconds (jittered by a few seconds either way, so
-  multiple people running this tool against the same challenge don't all
-  hit the API in lockstep) while live sync is on and something's loaded.
+  react the instant a task gets locked. This tool polls in the background
+  every ~60 seconds (jittered by a few seconds either way, so multiple
+  people running this tool against the same challenge don't all hit the
+  API in lockstep) while live sync is on and something's loaded.
 - Right before anything that would actually delete a task — processing
   the delete queue, or committing to a split on a task-linked area — it
   does one more on-demand check of just that moment's lock state first,
@@ -253,9 +257,6 @@ worth understanding about how this works:
   If a queued area turns out to be freshly locked when its turn in the
   queue comes up, it's skipped (not deleted) and called out in the final
   summary rather than silently dropped.
-- A lock held by *you* (the same MapRoulette account as the API key)
-  doesn't count as blocking — only someone else's lock does, determined
-  by comparing against your own user ID from `GET /user/whoami`.
 - This is purely a live-sync concept (there's nowhere to store "someone
   has this open right now" in a static GeoJSON file), so it has no effect
   with live sync off, and turning live sync off immediately clears any

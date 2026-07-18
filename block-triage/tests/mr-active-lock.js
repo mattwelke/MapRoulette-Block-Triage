@@ -37,7 +37,7 @@ function makeTask(id, status, lng, lat) {
   };
 }
 
-runTest("mr-active-lock: tasks someone else has open elsewhere are locked", async () => {
+runTest("mr-active-lock: tasks currently checked out on MapRoulette are locked, by anyone including the API key's own user", async () => {
   const { browser, page } = await launch();
   const dialogs = [];
   page.on("dialog", async (dialog) => {
@@ -46,13 +46,15 @@ runTest("mr-active-lock: tasks someone else has open elsewhere are locked", asyn
   });
 
   const CHALLENGE_ID = 66001;
-  const MY_USER_ID = 555;
+  const MY_USER_ID = 555; // the account behind the configured API key
   const OTHER_USER_ID = 42;
 
   // Task order == sidebar row order (all same size, stable sort): idx 0..4.
   //   #0 900001 - unlocked throughout
   //   #1 900002 - locked by someone else, throughout
-  //   #2 900003 - locked by "me" (should NOT show as active-lock)
+  //   #2 900003 - locked by the SAME account as the API key - this should still
+  //               show as active-lock. There's deliberately no "is it me"
+  //               carve-out: any lockedBy value counts, full stop.
   //   #3 900004 - unlocked at load, becomes locked-by-other right before a split attempt
   //   #4 900005 - unlocked throughout - used for the "still deletes fine" queue check
   const tasks = [
@@ -74,13 +76,6 @@ runTest("mr-active-lock: tasks someone else has open elsewhere are locked", asyn
       lockedBy: lockedByTaskId[t.id] != null ? lockedByTaskId[t.id] : null,
     }));
     await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ markers, overlaps: [] }) });
-  });
-  await page.route("https://maproulette.org/api/v2/user/whoami", async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: "application/json",
-      body: JSON.stringify({ id: MY_USER_ID, osmProfile: { displayName: "Me" } }),
-    });
   });
   await page.route(`https://maproulette.org/api/v2/challenge/${CHALLENGE_ID}/tasks**`, async (route) => {
     const url = new URL(route.request().url());
@@ -125,12 +120,12 @@ runTest("mr-active-lock: tasks someone else has open elsewhere are locked", asyn
   const idx2Class = await (await rowByIdx(2)).$eval(".status-dot", (el) => el.className);
   assert(!idx0Class.includes("active-lock"), "unlocked task should not show active-lock");
   assert(idx1Class.includes("active-lock"), "task locked by someone else should show active-lock");
-  assert(!idx2Class.includes("active-lock"), 'task locked by "me" should NOT show active-lock');
+  assert(idx2Class.includes("active-lock"), "task locked by the API key's own user should ALSO show active-lock");
 
   await (await rowByIdx(1)).click();
   await page.waitForTimeout(300);
   const popupHtml = await page.$eval(".leaflet-popup-content", (el) => el.innerHTML);
-  assert(popupHtml.includes("another MapRoulette user"), "popup should explain who has it locked");
+  assert(popupHtml.includes("checked out on MapRoulette"), "popup should explain the task is checked out");
   assert(!popupHtml.includes("data-split"), "locked popup should omit Split");
   assert(!popupHtml.includes("data-mr-action"), "locked popup should omit mr-action");
   await page.click(".leaflet-popup-close-button").catch(() => {});
