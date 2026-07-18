@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Block Triage - Live MapRoulette Editing</title>
+<link rel="stylesheet" href="vendor/leaflet.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="app">
+    <div id="mr-live-banner">
+      &#128308; LIVE: editing MapRoulette challenge <span id="mr-live-banner-challenge">(no challenge ID set)</span>
+    </div>
+
+    <header id="topbar">
+      <a id="back-link" href="index.html" title="Back to interface chooser">←</a>
+      <h1>Block Triage — Live MapRoulette Editing</h1>
+      <div id="file-controls">
+        <button id="undo-btn" disabled title="Undo last change (Ctrl+Z)">&#8630; Undo</button>
+        <button id="redo-btn" disabled title="Redo (Ctrl+Shift+Z)">&#8631; Redo</button>
+        <button id="add-area-btn" disabled title="Draw a new area's outline by clicking points on the map">Add new area&hellip;</button>
+        <button id="combine-area-btn" disabled title="Click 2+ areas to merge them into one - areas that don't touch get bridged, not rejected">Combine areas&hellip;</button>
+        <span id="reference-controls">
+          <label class="btn" for="reference-file-input">Load reference layer&hellip;</label>
+          <input type="file" id="reference-file-input" accept=".geojson,.json,application/geo+json,application/json">
+          <span id="reference-file-name" class="muted">No reference layer</span>
+          <button id="clear-reference-btn" disabled title="Remove the reference layer">Clear</button>
+        </span>
+      </div>
+    </header>
+
+    <div id="body">
+      <div id="draw-status" hidden>
+        <span id="draw-status-text"></span>
+        <button id="draw-finish-btn">Finish (Enter)</button>
+        <button id="draw-cancel-btn">Cancel (Esc)</button>
+      </div>
+
+      <aside id="sidebar">
+        <div id="stats"></div>
+
+        <div id="maproulette">
+          <h2>MapRoulette</h2>
+          <label>
+            API key
+            <span class="mr-key-row">
+              <input type="password" id="mr-api-key-input" autocomplete="off" placeholder="paste your apiKey">
+              <button id="mr-api-key-clear-btn" title="Forget the stored API key">Clear</button>
+            </span>
+          </label>
+          <label>
+            Challenge ID
+            <input type="number" id="mr-challenge-id-input" placeholder="e.g. 55881">
+          </label>
+          <button id="mr-test-btn">Test connection</button>
+          <div id="mr-status" class="muted"></div>
+          <button id="mr-load-challenge-btn" title="Load every task in this challenge directly from MapRoulette">Load challenge from MapRoulette</button>
+          <div id="mr-load-status" class="muted"></div>
+          <div class="muted" id="mr-lock-poll-status" title="Background check for tasks someone currently has open on MapRoulette. Runs every ~60s (jittered).">Task lock checks: not yet run.</div>
+          <hr>
+          <div class="muted">
+            "Remove task from challenge" queues the delete instead of
+            doing it right away — nothing is deleted until you process
+            the queue below, one task at a time.
+          </div>
+          <label id="mr-quick-queue-toggle" class="toggle-label" title="When on, clicking an area on the map (that's already linked to a MapRoulette task and isn't locked) queues or unqueues it for deletion instead of opening the review popup.">
+            <input type="checkbox" id="mr-quick-queue-checkbox">
+            Quick queue-delete mode (click map to queue for deletion)
+          </label>
+          <button id="mr-queue-btn" disabled>Process delete queue (0)</button>
+          <div id="mr-queue-status" class="muted"></div>
+        </div>
+
+        <div id="thresholds">
+          <h2>Auto-flag thresholds</h2>
+          <label>
+            Small area &lt;
+            <input type="number" id="area-threshold" value="150" min="0" step="10"> m&sup2;
+          </label>
+          <label>
+            Skinny (compactness) &lt;
+            <input type="number" id="compactness-threshold" value="0.15" min="0" max="1" step="0.01">
+          </label>
+        </div>
+
+        <div id="filters">
+          <h2>Show</h2>
+          <label><input type="radio" name="filter" value="all" checked> All (<span data-count="all">0</span>)</label>
+          <label><input type="radio" name="filter" value="flagged"> Flagged, undecided (<span data-count="flagged">0</span>)</label>
+          <label><input type="radio" name="filter" value="unreviewed"> Unreviewed (<span data-count="unreviewed">0</span>)</label>
+        </div>
+
+        <div id="legend">
+          <h2>Legend</h2>
+          <div><span class="swatch unreviewed"></span> Unreviewed</div>
+          <div><span class="swatch flagged"></span> Flagged (small/skinny)</div>
+          <div><span class="swatch locked"></span> Locked (already Fixed/Already Fixed on MapRoulette)</div>
+          <div><span class="swatch active-lock"></span> Locked (checked out on MapRoulette right now)</div>
+        </div>
+
+        <div id="shortcuts">
+          <h2>Keyboard shortcuts</h2>
+          <div><kbd>j</kbd> / <kbd>k</kbd> next / previous in list</div>
+          <div><kbd>Ctrl</kbd>+<kbd>Z</kbd> undo</div>
+          <div><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd> redo</div>
+          <div>While drawing: click to add a point, <kbd>Enter</kbd> or double-click to finish, <kbd>Esc</kbd> to cancel</div>
+          <div>While combining: click areas (map or list) to select, <kbd>Enter</kbd> to merge, <kbd>Esc</kbd> to cancel</div>
+        </div>
+
+        <div id="feature-list-wrap">
+          <h2>Features <span class="muted">(sorted by area, smallest first)</span></h2>
+          <div id="feature-list"></div>
+        </div>
+      </aside>
+
+      <main id="map"></main>
+    </div>
+  </div>
+
+  <script src="vendor/leaflet.js"></script>
+  <script src="vendor/turf.min.js"></script>
+  <script src="live.js"></script>
+</body>
+</html>

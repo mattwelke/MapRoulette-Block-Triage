@@ -1,4 +1,16 @@
-const { launch, assertNoPageErrors, appUrl, fixturePath, assert, assertEqual, runTest } = require("./support");
+const {
+  launch,
+  assertNoPageErrors,
+  liveUrl,
+  assert,
+  assertEqual,
+  runTest,
+  mrChallengeSampleTasks,
+  routeMrChallenge,
+  loadLiveChallenge,
+} = require("./support");
+
+const CHALLENGE_ID = 90001;
 
 runTest("mr-queue-process: bulk confirm, paced sequential deletes, partial failure handling", async () => {
   const { browser, page } = await launch();
@@ -8,9 +20,14 @@ runTest("mr-queue-process: bulk confirm, paced sequential deletes, partial failu
     await dialog.accept();
   });
 
-  // Fail the 2nd request deliberately, succeed on the others.
+  await routeMrChallenge(page, CHALLENGE_ID, mrChallengeSampleTasks());
+
+  // Fail the 2nd delete request deliberately, succeed on the others - this
+  // override is registered after routeMrChallenge's own DELETE handler, so
+  // it takes precedence.
   let requestOrder = [];
-  await page.route("https://maproulette.org/api/v2/task/**", async (route) => {
+  await page.route(/https:\/\/maproulette\.org\/api\/v2\/task\/\d+$/, async (route) => {
+    if (route.request().method() !== "DELETE") return route.continue();
     const m = route.request().url().match(/\/task\/(\d+)/);
     requestOrder.push(m ? m[1] : null);
     if (requestOrder.length === 2) {
@@ -20,14 +37,9 @@ runTest("mr-queue-process: bulk confirm, paced sequential deletes, partial failu
     }
   });
 
-  await page.goto(appUrl());
+  await page.goto(liveUrl());
   await page.waitForTimeout(500);
-  await page.click("#mr-live-sync-checkbox");
-  await page.waitForTimeout(200);
-  await page.fill("#mr-api-key-input", "fake-test-key");
-  await page.$eval("#mr-api-key-input", (el) => el.dispatchEvent(new Event("change")));
-  await page.setInputFiles("#file-input", fixturePath("mr-challenge-sample.geojson"));
-  await page.waitForTimeout(1500);
+  await loadLiveChallenge(page, CHALLENGE_ID, "fake-test-key");
 
   // Queue the 3 largest-area, unlocked features via their popups (locked ones
   // don't get an mr-action button at all - skip over any of those).
@@ -61,9 +73,12 @@ runTest("mr-queue-process: bulk confirm, paced sequential deletes, partial failu
   assert(elapsed > 700, `expected pacing between deletes to take noticeably longer than an instant batch, elapsed=${elapsed}ms`);
 
   const queueStatus = await page.$eval("#mr-queue-status", (el) => el.textContent);
-  assert(queueStatus.includes("deleted 2 of 3") && queueStatus.includes("1 failed"), `expected a partial-failure summary, got: ${queueStatus}`);
+  assert(
+    queueStatus.includes("deleted 2 of 3") && queueStatus.includes("1 failed"),
+    `expected a partial-failure summary, got: ${queueStatus}`
+  );
   assertEqual(
-    await page.$eval("#mr-queue-btn", (el) => ({ text: el.textContent, disabled: el.disabled })).then((r) => r.text),
+    await page.$eval("#mr-queue-btn", (el) => el.textContent),
     "Process delete queue (0)",
     "queue should be empty after processing (the failed item is unqueued, just still linked)"
   );

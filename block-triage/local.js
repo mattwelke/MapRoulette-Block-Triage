@@ -4,94 +4,17 @@
   const COLORS = {
     unreviewed: "#3388ff",
     flagged: "#ff9800",
-    excluded: "#e53935",
     kept: "#43a047",
-    locked: "#9e9e9e",
-    "active-lock": "#6d4c41",
   };
 
-  // Tasks already resolved on MapRoulette (independent of whether live sync
-  // is currently on - this is read straight from the loaded file's data, not
-  // a live status). Locked areas can still be clicked to see their status,
-  // but not split, combined, or removed - there's nothing left to do with an
-  // already-fixed task structurally, and doing so would just create more
-  // work for someone re-reviewing it.
-  const LOCKED_TASK_STATUSES = new Set(["fixed", "already fixed"]);
-
-  function isLockedTaskStatus(rawStatus) {
-    if (!rawStatus) return false;
-    return LOCKED_TASK_STATUSES.has(String(rawStatus).replace(/_/g, " ").trim().toLowerCase());
-  }
-
-  function formatMrTaskStatus(rawStatus) {
-    return rawStatus ? String(rawStatus).replace(/_/g, " ") : "unknown";
-  }
-
-  // The other reason an area can be locked: its MapRoulette task is
-  // currently held open (locked via the site's own "start working" flow, or
-  // another API client) - by anyone, including whoever owns the API key
-  // configured here. Unlike the status-based lock above, this is only ever
-  // known live - there's no way to embed it in a static file - so it only
-  // applies while live sync is on, and only reflects however stale the last
-  // poll/recheck happened to be (MapRoulette's API has no push mechanism for
-  // this; see refreshMrLockState below).
-  function mrBlockReason(entry) {
-    if (entry.mrLocked) {
-      return `already "${formatMrTaskStatus(entry.mrTaskStatus)}" and is locked`;
-    }
-    if (mrLiveSync && entry.mrActiveLockedBy != null) {
-      return `currently checked out on MapRoulette and is locked`;
-    }
-    return null;
-  }
-
-  // Numeric Task.status codes as returned by GET /challenge/{id}/tasks,
-  // mapped to the same underscore-separated strings MapRoulette itself
-  // writes into a challenge's mr_taskStatus GeoJSON export - so a challenge
-  // loaded live through the API is indistinguishable, status-wise, from one
-  // loaded from a file (isLockedTaskStatus/formatMrTaskStatus need no
-  // special-casing either way).
-  const MR_TASK_STATUS_NAMES = {
-    0: "Created",
-    1: "Fixed",
-    2: "Not_An_Issue",
-    3: "Skipped",
-    4: "Deleted",
-    5: "Already_Fixed",
-    6: "Too_Hard",
-  };
-
-  // Written into each kept feature's properties on export so a re-imported
-  // (round-tripped) file can recognize prior decisions without relying on
-  // localStorage. Namespaced and underscore-prefixed to avoid colliding with
-  // anything MapRoulette itself reads out of task GeoJSON properties.
-  const STATUS_PROPERTY = "_blockTriageStatus";
-
-  const MR_API_BASE = "https://maproulette.org/api/v2";
-  let mrApiKey = localStorage.getItem("block-triage:mrApiKey") || "";
-  let mrChallengeId = localStorage.getItem("block-triage:mrChallengeId") || "";
-  let mrLiveSync = localStorage.getItem("block-triage:mrLiveSync") === "true";
-  /** @type {Set<string>} entry ids queued for MapRoulette task deletion, not yet actually deleted */
-  let mrDeleteQueue = new Set();
-  const MR_DELETE_PACE_MS = 400; // pause between deletes when processing the queue
-
-  // Background polling for "someone else has this task locked" - MapRoulette's
-  // API has no push mechanism, so this is the only way to notice. Jittered so
-  // that if several people run this tool at once, they don't all hammer the
-  // API in lockstep every 60s.
-  const MR_LOCK_POLL_BASE_MS = 60000;
-  const MR_LOCK_POLL_JITTER_MS = 5000; // vary +/- up to 5s
-  let mrLockPollTimer = null;
-
-  /** @type {Map<string, {id:string, idx:number, feature:object, layer:L.Layer, area:number, compactness:number, status:string}>} */
+  /** @type {Map<string, {id:string, idx:number, feature:object, layer:L.Layer, area:number, compactness:number, status:string, flagged:boolean}>} */
   let entries = new Map();
   let orderedIds = []; // insertion order == original feature order
   let fileKey = null;
   let raw = null; // parsed geojson, kept so we can preserve top-level fields on export
   let selectedId = null;
   let thresholds = loadThresholds();
-  let quickExcludeMode = localStorage.getItem("block-triage:quickExcludeMode") === "true";
-  let mrQuickQueueDeleteMode = localStorage.getItem("block-triage:mrQuickQueueDeleteMode") === "true";
+  let quickRemoveMode = localStorage.getItem("block-triage:quickRemoveMode") === "true";
   let undoStack = [];
   let redoStack = [];
   let newFeatureCounter = 0;
@@ -162,15 +85,15 @@
   map.on("zoomend", () => updateBandVisibility());
 
   // The currently-selected area gets a pulsing highlight, so you can
-  // visually confirm what's selected before splitting/deleting/etc it -
-  // easy to lose track of in a dense cluster of small areas. Canvas can't
-  // animate individual shapes, so this gets its own SVG renderer (like the
-  // reference layer's band above) and the pulse itself is a plain CSS
-  // animation on the rendered <path>, not a JS-driven redraw loop. Traced
-  // right on the feature's own boundary (not an inward-buffered band, like
-  // the reference layer's border) since Leaflet stroke weight is in screen
-  // pixels - a real-world-distance inset would shrink to invisible at
-  // ordinary zoom levels, and selection needs to read at any zoom.
+  // visually confirm what's selected before removing/splitting/etc it - easy
+  // to lose track of in a dense cluster of small areas. Canvas can't animate
+  // individual shapes, so this gets its own SVG renderer (like the reference
+  // layer's band above) and the pulse itself is a plain CSS animation on the
+  // rendered <path>, not a JS-driven redraw loop. Traced right on the
+  // feature's own boundary (not an inward-buffered band, like the reference
+  // layer's border) since Leaflet stroke weight is in screen pixels - a
+  // real-world-distance inset would shrink to invisible at ordinary zoom
+  // levels, and selection needs to read at any zoom.
   const selectionRenderer = L.svg().addTo(map);
   let selectionPulseLayer = null;
 
@@ -198,7 +121,7 @@
   const featureListEl = document.getElementById("feature-list");
   const areaThresholdInput = document.getElementById("area-threshold");
   const compactnessThresholdInput = document.getElementById("compactness-threshold");
-  const quickExcludeCheckbox = document.getElementById("quick-exclude-checkbox");
+  const quickRemoveCheckbox = document.getElementById("quick-remove-checkbox");
   const appEl = document.getElementById("app");
   const undoBtn = document.getElementById("undo-btn");
   const redoBtn = document.getElementById("redo-btn");
@@ -211,77 +134,16 @@
   const referenceFileInput = document.getElementById("reference-file-input");
   const referenceFileNameEl = document.getElementById("reference-file-name");
   const clearReferenceBtn = document.getElementById("clear-reference-btn");
-  const mrApiKeyInput = document.getElementById("mr-api-key-input");
-  const mrApiKeyClearBtn = document.getElementById("mr-api-key-clear-btn");
-  const mrChallengeIdInput = document.getElementById("mr-challenge-id-input");
-  const mrTestBtn = document.getElementById("mr-test-btn");
-  const mrStatusEl = document.getElementById("mr-status");
-  const mrLoadChallengeBtn = document.getElementById("mr-load-challenge-btn");
-  const mrLoadStatusEl = document.getElementById("mr-load-status");
-  const mrLockPollStatusEl = document.getElementById("mr-lock-poll-status");
-  const mrLiveSyncCheckbox = document.getElementById("mr-live-sync-checkbox");
-  const mrLivePanel = document.getElementById("mr-live-panel");
-  const mrLiveBanner = document.getElementById("mr-live-banner");
-  const mrLiveBannerChallenge = document.getElementById("mr-live-banner-challenge");
-  const mrQueueBtn = document.getElementById("mr-queue-btn");
-  const mrQueueStatusEl = document.getElementById("mr-queue-status");
-  const mrQuickQueueCheckbox = document.getElementById("mr-quick-queue-checkbox");
-
-  mrApiKeyInput.value = mrApiKey;
-  mrChallengeIdInput.value = mrChallengeId;
-  mrLiveSyncCheckbox.checked = mrLiveSync;
-  updateMrLiveSyncUI();
-  updateMrQueueButton();
-  scheduleMrLockPoll();
-  mrQueueBtn.addEventListener("click", processMrDeleteQueue);
-
-  mrLiveSyncCheckbox.addEventListener("change", () => {
-    mrLiveSync = mrLiveSyncCheckbox.checked;
-    localStorage.setItem("block-triage:mrLiveSync", String(mrLiveSync));
-    updateMrLiveSyncUI();
-    // Restyle everything immediately - turning live sync off should make any
-    // stale "someone else has this locked" coloring disappear right away
-    // rather than lingering until the next poll would've fired.
-    recomputeFlagsAndRender();
-    kickMrLockPoll();
-  });
-  mrApiKeyInput.addEventListener("change", () => {
-    mrApiKey = mrApiKeyInput.value.trim();
-    localStorage.setItem("block-triage:mrApiKey", mrApiKey);
-  });
-  mrApiKeyClearBtn.addEventListener("click", () => {
-    mrApiKey = "";
-    mrApiKeyInput.value = "";
-    localStorage.removeItem("block-triage:mrApiKey");
-    mrStatusEl.textContent = "";
-    mrStatusEl.className = "muted";
-  });
-  mrChallengeIdInput.addEventListener("change", () => {
-    mrChallengeId = mrChallengeIdInput.value.trim();
-    localStorage.setItem("block-triage:mrChallengeId", mrChallengeId);
-    updateMrLiveSyncUI();
-    kickMrLockPoll();
-  });
-  mrTestBtn.addEventListener("click", mrTestConnection);
-  mrLoadChallengeBtn.addEventListener("click", loadChallengeFromMapRoulette);
-
-  mrQuickQueueCheckbox.checked = mrQuickQueueDeleteMode;
-  appEl.classList.toggle("mr-quick-queue-active", mrQuickQueueDeleteMode);
-  mrQuickQueueCheckbox.addEventListener("change", () => {
-    mrQuickQueueDeleteMode = mrQuickQueueCheckbox.checked;
-    localStorage.setItem("block-triage:mrQuickQueueDeleteMode", String(mrQuickQueueDeleteMode));
-    appEl.classList.toggle("mr-quick-queue-active", mrQuickQueueDeleteMode);
-  });
 
   areaThresholdInput.value = thresholds.area;
   compactnessThresholdInput.value = thresholds.compactness;
-  quickExcludeCheckbox.checked = quickExcludeMode;
-  appEl.classList.toggle("quick-exclude-active", quickExcludeMode);
+  quickRemoveCheckbox.checked = quickRemoveMode;
+  appEl.classList.toggle("quick-remove-active", quickRemoveMode);
 
-  quickExcludeCheckbox.addEventListener("change", () => {
-    quickExcludeMode = quickExcludeCheckbox.checked;
-    localStorage.setItem("block-triage:quickExcludeMode", String(quickExcludeMode));
-    appEl.classList.toggle("quick-exclude-active", quickExcludeMode);
+  quickRemoveCheckbox.addEventListener("change", () => {
+    quickRemoveMode = quickRemoveCheckbox.checked;
+    localStorage.setItem("block-triage:quickRemoveMode", String(quickRemoveMode));
+    appEl.classList.toggle("quick-remove-active", quickRemoveMode);
   });
 
   fileInput.addEventListener("change", (e) => {
@@ -369,7 +231,7 @@
     }
 
     if (!selectedId) return;
-    if (e.key === "x") setStatus(selectedId, "excluded");
+    if (e.key === "x") removeEntryWithUndo(selectedId);
     else if (e.key === "g") setStatus(selectedId, "kept");
     else if (e.key === "r") setStatus(selectedId, "unreviewed");
     else if (e.key === "j") selectRelative(1);
@@ -439,387 +301,6 @@
     exportBtn.disabled = false;
     addAreaBtn.disabled = false;
     combineAreaBtn.disabled = false;
-
-    // Don't clobber a challenge ID the user already set/typed - only fill it
-    // in when we don't have one yet.
-    if (!mrChallengeId) {
-      const detected = detectMrChallengeId(parsed);
-      if (detected) {
-        mrChallengeId = detected;
-        mrChallengeIdInput.value = detected;
-        localStorage.setItem("block-triage:mrChallengeId", detected);
-        updateMrLiveSyncUI();
-      }
-    }
-    kickMrLockPoll();
-  }
-
-  function updateMrLiveSyncUI() {
-    mrLivePanel.hidden = !mrLiveSync;
-    mrLiveBanner.hidden = !mrLiveSync;
-    if (mrLiveSync) {
-      mrLiveBannerChallenge.textContent = mrChallengeId || "(no challenge ID set)";
-    }
-    updateMrQueueButton();
-  }
-
-  function updateMrQueueButton() {
-    mrQueueBtn.textContent = `Process delete queue (${mrDeleteQueue.size})`;
-    mrQueueBtn.disabled = mrDeleteQueue.size === 0;
-  }
-
-  function sleep(ms) {
-    return new Promise((resolve) => setTimeout(resolve, ms));
-  }
-
-  // Mirrors quick-exclude mode's click-to-toggle interaction, but for the
-  // delete queue: a quick way to mark a whole run of already-resolved-looking
-  // areas for removal while triaging, without opening a popup for each one.
-  // Only ever queues - actual deletion still requires "Process delete queue".
-  function toggleQuickQueueDelete(entry) {
-    const blockReason = mrBlockReason(entry);
-    if (blockReason) {
-      alert(`This area's MapRoulette task is ${blockReason} - it can't be queued for deletion.`);
-      return;
-    }
-    if (!entry.mrTaskId) {
-      alert("This area isn't linked to a MapRoulette task yet, so there's nothing to queue for deletion.");
-      return;
-    }
-    if (mrDeleteQueue.has(entry.id)) mrDeleteQueue.delete(entry.id);
-    else mrDeleteQueue.add(entry.id);
-    entry.layer.setStyle(styleFor(entry));
-    updateMrQueueButton();
-    renderList();
-  }
-
-  async function processMrDeleteQueue() {
-    const ids = Array.from(mrDeleteQueue);
-    if (ids.length === 0) return;
-    const ok = confirm(
-      `This will permanently delete ${ids.length} task${ids.length === 1 ? "" : "s"} from MapRoulette, one at a time. Continue?`
-    );
-    if (!ok) return;
-
-    mrQueueBtn.disabled = true;
-    let done = 0;
-    let failed = 0;
-    let skippedLocked = 0;
-    for (const id of ids) {
-      done++;
-      mrDeleteQueue.delete(id);
-      const entry = entries.get(id);
-      if (!entry || !entry.mrTaskId) {
-        continue; // already gone or unlinked by some other means in the meantime
-      }
-
-      // Just-in-time recheck - the queue may have sat around a while, and
-      // someone could have picked up this exact task in the meantime. Only
-      // the lock endpoint is refetched (not a full reload), so this is
-      // cheap; best-effort if it fails, since the delete attempt itself is
-      // the final word either way.
-      try {
-        await refreshMrLockState();
-      } catch (err) {
-        // ignore - fall through with whatever lock state we already had
-      }
-      const blockReason = mrBlockReason(entry);
-      if (blockReason) {
-        skippedLocked++;
-        mrQueueStatusEl.textContent = `Skipped task ${entry.mrTaskId} (${done} of ${ids.length}): ${blockReason}.`;
-        entry.layer.setStyle(styleFor(entry)); // drop the "queued" look, it's back to just linked
-        saveMarks();
-        updateStats();
-        renderList();
-        if (done < ids.length) await sleep(MR_DELETE_PACE_MS);
-        continue;
-      }
-
-      mrQueueStatusEl.textContent = `Deleting ${done} of ${ids.length} (task ${entry.mrTaskId})…`;
-      try {
-        await mrDeleteTask(entry.mrTaskId);
-        removeEntry(entry.id);
-        if (raw && Array.isArray(raw.features)) {
-          raw.features = raw.features.filter((f) => f !== entry.feature);
-        }
-      } catch (err) {
-        failed++;
-        entry.layer.setStyle(styleFor(entry)); // drop the "queued" look, it's back to just linked
-      }
-      saveMarks();
-      updateStats();
-      renderList();
-      if (done < ids.length) await sleep(MR_DELETE_PACE_MS);
-    }
-    const deleted = done - failed - skippedLocked;
-    const parts = [`deleted ${deleted} of ${done}`];
-    if (failed > 0) parts.push(`${failed} failed`);
-    if (skippedLocked > 0) parts.push(`${skippedLocked} skipped (now locked)`);
-    mrQueueStatusEl.textContent =
-      failed === 0 && skippedLocked === 0
-        ? `Done — deleted ${deleted} task${deleted === 1 ? "" : "s"}.`
-        : `Done — ${parts.join(", ")}; anything not deleted is still linked locally (click "Remove task from challenge" on it again to retry).`;
-    updateMrQueueButton();
-  }
-
-  function detectMrChallengeId(parsed) {
-    const features = Array.isArray(parsed.features) ? parsed.features : [];
-    for (const feature of features) {
-      const raw = feature.properties && feature.properties.mr_challengeId;
-      if (raw !== undefined && raw !== null && raw !== "") return String(raw);
-    }
-    return null;
-  }
-
-  function parseMrTaskId(feature) {
-    const raw = feature.properties && feature.properties.mr_taskId;
-    if (raw === undefined || raw === null || raw === "") return null;
-    const n = Number(raw);
-    return Number.isFinite(n) ? n : null;
-  }
-
-  // --- MapRoulette API ---
-
-  async function mrRequest(path, options) {
-    if (!mrApiKey) throw new Error("Set your MapRoulette API key first.");
-    const res = await fetch(MR_API_BASE + path, {
-      ...options,
-      headers: Object.assign(
-        { apiKey: mrApiKey, "Content-Type": "application/json", From: "Block Triage - tronnalegacy@pm.me" },
-        (options && options.headers) || {}
-      ),
-    });
-    if (!res.ok) {
-      let detail = "";
-      try {
-        detail = await res.text();
-      } catch (err) {
-        // ignore - use status text below
-      }
-      throw new Error(`MapRoulette API ${res.status}: ${detail || res.statusText}`);
-    }
-    if (res.status === 204 || res.status === 304) return null;
-    const text = await res.text();
-    return text ? JSON.parse(text) : null;
-  }
-
-  async function mrTestConnection() {
-    mrStatusEl.textContent = "Testing…";
-    mrStatusEl.className = "muted";
-    try {
-      const user = await mrRequest("/user/whoami");
-      const name = (user && user.osmProfile && user.osmProfile.displayName) || "unknown user";
-      mrStatusEl.textContent = `Connected as ${name}.`;
-      mrStatusEl.className = "mr-success";
-    } catch (err) {
-      mrStatusEl.textContent = "Connection failed: " + err.message;
-      mrStatusEl.className = "mr-error";
-    }
-  }
-
-  async function mrCreateTask(feature) {
-    if (!mrChallengeId) throw new Error("Set a Challenge ID first.");
-    const body = {
-      name: crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`,
-      parent: Number(mrChallengeId),
-      geometries: {
-        type: "FeatureCollection",
-        features: [{ type: "Feature", geometry: feature.geometry, properties: {} }],
-      },
-    };
-    return mrRequest("/task", { method: "POST", body: JSON.stringify(body) });
-  }
-
-  function mrDeleteTask(taskId) {
-    return mrRequest(`/task/${taskId}`, { method: "DELETE" });
-  }
-
-  const MR_TASKS_PAGE_SIZE = 500;
-
-  async function mrFetchAllChallengeTasks(challengeId, onProgress) {
-    const tasks = [];
-    let page = 0;
-    for (;;) {
-      const batch = await mrRequest(`/challenge/${encodeURIComponent(challengeId)}/tasks?limit=${MR_TASKS_PAGE_SIZE}&page=${page}`);
-      const items = Array.isArray(batch) ? batch : [];
-      tasks.push(...items);
-      if (onProgress) onProgress(tasks.length);
-      if (items.length < MR_TASKS_PAGE_SIZE) break;
-      page++;
-    }
-    return tasks;
-  }
-
-  // Each Task's `geometries` is its own little FeatureCollection (usually
-  // one polygon, but the API allows more) - flatten every task's feature(s)
-  // into one challenge-wide FeatureCollection, stamping on the same
-  // mr_taskId/mr_challengeId/mr_taskStatus properties a file exported
-  // straight from MapRoulette would carry.
-  function mrTasksToFeatureCollection(tasks, challengeId) {
-    const features = [];
-    tasks.forEach((task) => {
-      const taskFeatures = task.geometries && Array.isArray(task.geometries.features) ? task.geometries.features : [];
-      taskFeatures.forEach((f) => {
-        if (!f.geometry) return;
-        features.push({
-          type: "Feature",
-          geometry: f.geometry,
-          properties: Object.assign({}, f.properties, {
-            mr_taskId: String(task.id),
-            mr_challengeId: String(challengeId),
-            mr_taskStatus: MR_TASK_STATUS_NAMES[task.status] || null,
-          }),
-        });
-      });
-    });
-    return { type: "FeatureCollection", name: `maproulette-challenge-${challengeId}`, features };
-  }
-
-  async function loadChallengeFromMapRoulette() {
-    if (!mrApiKey) {
-      mrLoadStatusEl.textContent = "Set your MapRoulette API key first.";
-      mrLoadStatusEl.className = "mr-error";
-      return;
-    }
-    if (!mrChallengeId) {
-      mrLoadStatusEl.textContent = "Set a Challenge ID first.";
-      mrLoadStatusEl.className = "mr-error";
-      return;
-    }
-    if (entries.size > 0) {
-      const ok = confirm(
-        "Load this challenge from MapRoulette? This replaces the areas currently loaded (export first if you want to keep them)."
-      );
-      if (!ok) return;
-    }
-
-    mrLoadChallengeBtn.disabled = true;
-    mrLoadStatusEl.className = "muted";
-    mrLoadStatusEl.textContent = "Loading tasks…";
-    try {
-      const tasks = await mrFetchAllChallengeTasks(mrChallengeId, (n) => {
-        mrLoadStatusEl.textContent = `Loading tasks… ${n} so far…`;
-      });
-      const parsed = mrTasksToFeatureCollection(tasks, mrChallengeId);
-      activateDataset(
-        parsed,
-        `mr-challenge-${mrChallengeId}`,
-        `MapRoulette challenge ${mrChallengeId} (${parsed.features.length} features)`
-      );
-      mrLoadStatusEl.textContent = `Loaded ${parsed.features.length} task area${parsed.features.length === 1 ? "" : "s"} from challenge ${mrChallengeId}.`;
-      mrLoadStatusEl.className = "mr-success";
-    } catch (err) {
-      mrLoadStatusEl.textContent = "Failed to load challenge: " + err.message;
-      mrLoadStatusEl.className = "mr-error";
-    } finally {
-      mrLoadChallengeBtn.disabled = false;
-    }
-  }
-
-  // --- MapRoulette task locks (someone actively working on a task) ---
-  //
-  // There's no push/webhook mechanism in MapRoulette's API for this, so the
-  // only option is polling. GET /challenge/{id}/tasks (used above) doesn't
-  // carry lock info at all - it only shows up on the lighter-weight
-  // taskMarkers endpoint, which conveniently covers the whole challenge in
-  // one call.
-
-  function setMrLockPollStatus(text, cls) {
-    if (!mrLockPollStatusEl) return;
-    mrLockPollStatusEl.textContent = text;
-    mrLockPollStatusEl.className = cls || "muted";
-  }
-
-  async function refreshMrLockState() {
-    if (!mrApiKey || !mrChallengeId) return;
-    setMrLockPollStatus("Checking for locked tasks…");
-    try {
-      const data = await mrRequest(`/challenge/${encodeURIComponent(mrChallengeId)}/taskMarkers`);
-      const markers = [];
-      if (data && Array.isArray(data.markers)) markers.push(...data.markers);
-      if (data && Array.isArray(data.overlaps)) {
-        data.overlaps.forEach((o) => {
-          if (o && Array.isArray(o.tasks)) markers.push(...o.tasks);
-        });
-      }
-      const lockedByTaskId = new Map();
-      markers.forEach((m) => {
-        if (m && m.id != null) lockedByTaskId.set(m.id, m.lockedBy != null ? m.lockedBy : null);
-      });
-
-      let changed = false;
-      let activeLockCount = 0;
-      entries.forEach((entry) => {
-        if (entry.mrTaskId == null) return;
-        const activeLockedBy = lockedByTaskId.has(entry.mrTaskId) ? lockedByTaskId.get(entry.mrTaskId) : null;
-        if (activeLockedBy != null) activeLockCount++;
-        if (entry.mrActiveLockedBy !== activeLockedBy) {
-          entry.mrActiveLockedBy = activeLockedBy;
-          if (entry.layer) entry.layer.setStyle(styleFor(entry));
-          changed = true;
-        }
-      });
-      if (changed) renderList();
-
-      // Multiple things can independently trigger a refresh (a poll, a
-      // recheck-before-delete, the challenge ID field's own change event
-      // re-firing on blur, etc), so by the time this particular call
-      // resolves, live sync could've been turned off (or the challenge/data
-      // cleared) in the meantime. Don't clobber the "paused" message with a
-      // stale result in that case - the data merge above is still harmless
-      // to keep, but the status line should reflect current reality.
-      if (mrLockPollEligible()) {
-        setMrLockPollStatus(
-          `Last checked ${new Date().toLocaleTimeString()} — ` +
-            (activeLockCount > 0
-              ? `${activeLockCount} task${activeLockCount === 1 ? "" : "s"} currently checked out on MapRoulette.`
-              : `no tasks currently checked out on MapRoulette.`)
-        );
-      }
-    } catch (err) {
-      if (mrLockPollEligible()) {
-        setMrLockPollStatus(`Lock check failed: ${err.message} (will retry)`, "mr-error");
-      }
-      throw err;
-    }
-  }
-
-  // Jittered so that if several people happen to have this tool open on the
-  // same challenge, their background polls don't all land on the API at
-  // exactly the same moment every time.
-  function mrLockPollEligible() {
-    return mrLiveSync && !!mrChallengeId && entries.size > 0;
-  }
-
-  function scheduleMrLockPoll() {
-    clearTimeout(mrLockPollTimer);
-    if (!mrLockPollEligible()) {
-      setMrLockPollStatus("Task lock checks paused (need live sync on, a Challenge ID, and some areas loaded).");
-      return;
-    }
-    const jitter = Math.round((Math.random() * 2 - 1) * MR_LOCK_POLL_JITTER_MS);
-    mrLockPollTimer = setTimeout(async () => {
-      try {
-        await refreshMrLockState();
-      } catch (err) {
-        // silent - this is a background refresh; the next scheduled poll retries
-      }
-      scheduleMrLockPoll();
-    }, MR_LOCK_POLL_BASE_MS + jitter);
-  }
-
-  // Called whenever something changes that should make lock state fresh
-  // again right away, rather than waiting out whatever's left of the current
-  // poll interval: loading a dataset, toggling live sync on, or setting the
-  // challenge ID.
-  function kickMrLockPoll() {
-    clearTimeout(mrLockPollTimer);
-    if (!mrLockPollEligible()) {
-      setMrLockPollStatus("Task lock checks paused (need live sync on, a Challenge ID, and some areas loaded).");
-      return;
-    }
-    refreshMrLockState().catch(() => {});
-    scheduleMrLockPoll();
   }
 
   function loadReferenceLayer(file) {
@@ -931,9 +412,6 @@
     newFeatureCounter = 0;
     addedAreaCounter = 0;
     updateUndoRedoButtons();
-    mrDeleteQueue = new Set();
-    updateMrQueueButton();
-    mrQueueStatusEl.textContent = "";
 
     const marks = loadMarks();
 
@@ -941,7 +419,6 @@
       const id = hashString(JSON.stringify(feature.geometry));
       const { area, compactness } = computeMetrics(feature);
       const embeddedStatus = feature.properties && feature.properties[STATUS_PROPERTY] === "kept" ? "kept" : "unreviewed";
-      const mrTaskStatus = (feature.properties && feature.properties.mr_taskStatus) || null;
 
       entries.set(id, {
         id,
@@ -951,14 +428,15 @@
         area,
         compactness,
         status: marks[id] || embeddedStatus,
-        mrTaskId: parseMrTaskId(feature),
-        mrTaskStatus,
-        mrLocked: isLockedTaskStatus(mrTaskStatus),
-        mrActiveLockedBy: null, // filled in by refreshMrLockState, if/when it runs
       });
       orderedIds.push(id);
     });
   }
+
+  // Written into each kept feature's properties on export so a re-imported
+  // (round-tripped) file can recognize prior decisions without relying on
+  // localStorage.
+  const STATUS_PROPERTY = "_blockTriageStatus";
 
   function computeMetrics(feature) {
     let area = 0;
@@ -995,9 +473,6 @@
   }
 
   function category(entry) {
-    if (entry.mrLocked) return "locked";
-    if (mrLiveSync && entry.mrActiveLockedBy != null) return "active-lock";
-    if (entry.status === "excluded") return "excluded";
     if (entry.status === "kept") return "kept";
     if (entry.flagged) return "flagged";
     return "unreviewed";
@@ -1006,17 +481,8 @@
   function styleFor(entry) {
     const cat = category(entry);
     const color = COLORS[cat];
-    if (entry.mrLocked) {
-      return { color: "#616161", weight: 2, dashArray: null, fillColor: color, fillOpacity: 0.45 };
-    }
-    if (cat === "active-lock") {
-      return { color: "#4e342e", weight: 2, dashArray: null, fillColor: color, fillOpacity: 0.45 };
-    }
     if (combineState && combineState.selectedIds.has(entry.id)) {
       return { color: "#9c27b0", weight: 4, dashArray: "6 3", fillColor: color, fillOpacity: 0.35 };
-    }
-    if (mrDeleteQueue.has(entry.id)) {
-      return { color: "#b71c1c", weight: 4, dashArray: "2 4", fillColor: color, fillOpacity: 0.35 };
     }
     const isSelected = entry.id === selectedId;
     return {
@@ -1026,7 +492,7 @@
       // cleared here or a prior combine-selection dash pattern would stick.
       dashArray: null,
       fillColor: color,
-      fillOpacity: cat === "excluded" ? 0.55 : cat === "kept" ? 0.25 : cat === "flagged" ? 0.4 : 0.15,
+      fillOpacity: cat === "kept" ? 0.25 : cat === "flagged" ? 0.4 : 0.15,
     };
   }
 
@@ -1048,7 +514,7 @@
     const layer = L.geoJSON(entry.feature, { style: () => styleFor(entry) });
     // While drawing (split-line or new-area), clicks/moves that land on top of
     // an existing polygon must still reach the drawing controller instead of
-    // being consumed here as a selection/exclude click — a cut line very often
+    // being consumed here as a selection/remove click — a cut line very often
     // needs to cross directly over other areas.
     layer.on("click", (e) => {
       if (drawState) {
@@ -1062,10 +528,8 @@
         return;
       }
       selectFeature(entry.id);
-      if (mrLiveSync && mrQuickQueueDeleteMode) {
-        toggleQuickQueueDelete(entry);
-      } else if (quickExcludeMode) {
-        setStatus(entry.id, entry.status === "excluded" ? "unreviewed" : "excluded");
+      if (quickRemoveMode) {
+        removeEntryWithUndo(entry.id);
       } else {
         openPopup(entry);
       }
@@ -1084,34 +548,18 @@
   }
 
   function openPopup(entry) {
-    const blockReason = mrBlockReason(entry);
     const div = document.createElement("div");
     div.innerHTML = `
       <div><strong>Feature #${entry.idx}</strong></div>
       <div>Area: ${entry.area.toFixed(1)} m&sup2;</div>
       <div>Compactness: ${entry.compactness.toFixed(3)}</div>
       <div>Status: <span data-status>${entry.status}</span></div>
-      ${
-        blockReason
-          ? `<div class="mr-locked-note">&#128274; ${
-              entry.mrLocked
-                ? `MapRoulette status: <strong>${formatMrTaskStatus(entry.mrTaskStatus)}</strong>`
-                : `Currently checked out on MapRoulette`
-            } — locked. Split and remove are disabled while this is the case.</div>`
-          : ""
-      }
       <div class="popup-actions">
-        <button data-action="excluded">Exclude</button>
         <button data-action="kept">Keep</button>
         <button data-action="unreviewed">Reset</button>
+        <button data-remove>Remove</button>
       </div>
-      ${blockReason ? "" : `<div class="popup-actions"><button data-split>Split&hellip;</button></div>`}
-      ${
-        mrLiveSync && !blockReason
-          ? `<div class="popup-actions"><button data-mr-action></button></div>
-             <div class="mr-inline-status" data-mr-status></div>`
-          : ""
-      }
+      <div class="popup-actions"><button data-split>Split&hellip;</button></div>
     `;
     div.querySelectorAll("button[data-action]").forEach((btn) => {
       btn.addEventListener("click", () => {
@@ -1119,87 +567,13 @@
         div.querySelector("[data-status]").textContent = entry.status;
       });
     });
-    const splitBtn = div.querySelector("[data-split]");
-    if (splitBtn) {
-      splitBtn.addEventListener("click", async () => {
-        if (mrLiveSync && entry.mrTaskId) {
-          // Last-chance recheck right before committing to the split - the
-          // background poll could be up to about a minute stale, and this is
-          // the moment it actually matters.
-          splitBtn.disabled = true;
-          try {
-            await refreshMrLockState();
-          } catch (err) {
-            // best-effort - fall back to whatever lock state we already had
-          }
-          splitBtn.disabled = false;
-          const freshBlockReason = mrBlockReason(entry);
-          if (freshBlockReason) {
-            alert(`This area's MapRoulette task is ${freshBlockReason} - it can't be split.`);
-            return;
-          }
-          const ok = confirm(
-            `This area is linked to MapRoulette task ${entry.mrTaskId}. Splitting it will delete that task and create two new ones on MapRoulette once you finish drawing the cut. Continue?`
-          );
-          if (!ok) return;
-        }
-        map.closePopup();
-        startDrawing("split", entry.id);
-      });
-    }
-
-    if (!mrLiveSync || blockReason) {
-      const center = entry.layer.getBounds().getCenter();
-      L.popup().setLatLng(center).setContent(div).openOn(map);
-      return;
-    }
-
-    const mrBtn = div.querySelector("[data-mr-action]");
-    const mrStatusInline = div.querySelector("[data-mr-status]");
-    const updateMrButton = () => {
-      if (mrDeleteQueue.has(entry.id)) {
-        mrBtn.textContent = "Cancel pending removal";
-      } else {
-        mrBtn.textContent = entry.mrTaskId ? "Remove task from challenge" : "Add task to challenge";
-      }
-    };
-    updateMrButton();
-    mrBtn.addEventListener("click", async () => {
-      // Queueing/dequeueing is fully reversible (nothing's deleted yet), so
-      // no confirmation here - that happens once, for the whole batch, when
-      // actually processing the queue.
-      if (mrDeleteQueue.has(entry.id)) {
-        mrDeleteQueue.delete(entry.id);
-        entry.layer.setStyle(styleFor(entry));
-        mrStatusInline.textContent = "Removed from the delete queue.";
-        updateMrButton();
-        updateMrQueueButton();
-        renderList();
-        return;
-      }
-      if (entry.mrTaskId) {
-        mrDeleteQueue.add(entry.id);
-        entry.layer.setStyle(styleFor(entry));
-        mrStatusInline.textContent = 'Queued for removal — use "Process delete queue" in the sidebar to actually delete it.';
-        updateMrButton();
-        updateMrQueueButton();
-        renderList();
-        return;
-      }
-      mrBtn.disabled = true;
-      mrStatusInline.textContent = "Adding to MapRoulette…";
-      try {
-        const created = await mrCreateTask(entry.feature);
-        entry.mrTaskId = created.id;
-        mrStatusInline.textContent = `Added as MapRoulette task ${created.id}.`;
-      } catch (err) {
-        mrStatusInline.textContent = "Failed: " + err.message;
-      } finally {
-        if (entries.has(entry.id)) {
-          mrBtn.disabled = false;
-          updateMrButton();
-        }
-      }
+    div.querySelector("[data-remove]").addEventListener("click", () => {
+      map.closePopup();
+      removeEntryWithUndo(entry.id);
+    });
+    div.querySelector("[data-split]").addEventListener("click", () => {
+      map.closePopup();
+      startDrawing("split", entry.id);
     });
 
     const center = entry.layer.getBounds().getCenter();
@@ -1223,12 +597,48 @@
     }
   }
 
+  // Removing used to just be a status ("excluded") filtered out at export
+  // time. Now it's immediate and undoable instead: the area disappears from
+  // the map and the in-memory dataset right away (not just visually marked),
+  // specifically so the freed-up spot can be redrawn over immediately with
+  // "Add new area…" - the whole point of making removal instant rather than
+  // a reviewable status.
+  function removeEntryWithUndo(id) {
+    const entry = entries.get(id);
+    if (!entry) return;
+    const snapshot = snapshotEntry(entry);
+    removeEntry(id);
+    undoStack.push({ type: "remove", snapshot });
+    redoStack = [];
+    updateUndoRedoButtons();
+    saveMarks();
+    updateStats();
+    renderList();
+  }
+
+  function undoRemove(action) {
+    restoreEntryFromSnapshot(action.snapshot);
+    saveMarks();
+    updateStats();
+    renderList();
+    selectFeature(action.snapshot.id);
+    panTo(entries.get(action.snapshot.id));
+  }
+
+  function redoRemove(action) {
+    removeEntry(action.snapshot.id);
+    saveMarks();
+    updateStats();
+    renderList();
+  }
+
   function undo() {
     const action = undoStack.pop();
     if (!action) return;
     if (action.type === "split") undoSplit(action);
     else if (action.type === "add") undoAdd(action);
     else if (action.type === "combine") undoCombine(action);
+    else if (action.type === "remove") undoRemove(action);
     else {
       setStatus(action.id, action.prevStatus, { skipHistory: true });
       focusOnAction(action.id);
@@ -1243,6 +653,7 @@
     if (action.type === "split") redoSplit(action);
     else if (action.type === "add") redoAdd(action);
     else if (action.type === "combine") redoCombine(action);
+    else if (action.type === "remove") redoRemove(action);
     else {
       setStatus(action.id, action.newStatus, { skipHistory: true });
       focusOnAction(action.id);
@@ -1283,10 +694,6 @@
       area: entry.area,
       compactness: entry.compactness,
       status: entry.status,
-      mrTaskId: entry.mrTaskId,
-      mrTaskStatus: entry.mrTaskStatus,
-      mrLocked: entry.mrLocked,
-      mrActiveLockedBy: entry.mrActiveLockedBy,
     };
   }
 
@@ -1304,11 +711,6 @@
   function doSplit(targetId, points) {
     const entry = entries.get(targetId);
     if (!entry) return;
-    const blockReason = mrBlockReason(entry);
-    if (blockReason) {
-      alert(`This area's MapRoulette task is ${blockReason} - it can't be split.`);
-      return;
-    }
 
     let diffResult;
     try {
@@ -1343,10 +745,6 @@
         area,
         compactness,
         status: "unreviewed",
-        mrTaskId: null,
-        mrTaskStatus: null,
-        mrLocked: false,
-        mrActiveLockedBy: null,
       };
     });
     newSnapshots.forEach((snap) => restoreEntryFromSnapshot(snap));
@@ -1360,38 +758,6 @@
 
     selectFeature(newSnapshots[0].id);
     panTo(entries.get(newSnapshots[0].id));
-
-    // The local split is done; MapRoulette sync (if this area was a task and
-    // live sync is on) is a separate, non-blocking follow-up - failures here
-    // don't undo the local split (undo/redo never touch MapRoulette either,
-    // see the README).
-    if (mrLiveSync && originalSnapshot.mrTaskId) {
-      syncSplitToMapRoulette(originalSnapshot, newSnapshots);
-    }
-  }
-
-  async function syncSplitToMapRoulette(originalSnapshot, newSnapshots) {
-    try {
-      await mrDeleteTask(originalSnapshot.mrTaskId);
-    } catch (err) {
-      alert(
-        `Split completed locally, but removing MapRoulette task ${originalSnapshot.mrTaskId} failed: ${err.message}. It may still exist on MapRoulette; you may want to remove it manually.`
-      );
-      return;
-    }
-    for (const snap of newSnapshots) {
-      const liveEntry = entries.get(snap.id);
-      if (!liveEntry) continue; // this piece was removed/changed locally before the request resolved
-      try {
-        const created = await mrCreateTask(liveEntry.feature);
-        snap.mrTaskId = created.id;
-        liveEntry.mrTaskId = created.id;
-      } catch (err) {
-        alert(
-          `The original MapRoulette task was removed, but creating a new task for one split piece failed: ${err.message}. Use that area's "Add task to challenge" button to retry.`
-        );
-      }
-    }
   }
 
   function undoSplit(action) {
@@ -1437,10 +803,6 @@
       area,
       compactness,
       status: "unreviewed",
-      mrTaskId: null,
-      mrTaskStatus: null,
-      mrLocked: false,
-      mrActiveLockedBy: null,
     };
     restoreEntryFromSnapshot(snapshot);
 
@@ -1489,11 +851,6 @@
   function toggleCombineSelection(id) {
     if (!combineState) return;
     const entry = entries.get(id);
-    const blockReason = entry && !combineState.selectedIds.has(id) ? mrBlockReason(entry) : null;
-    if (blockReason) {
-      alert(`This area's MapRoulette task is ${blockReason} - it can't be combined.`);
-      return;
-    }
     if (combineState.selectedIds.has(id)) combineState.selectedIds.delete(id);
     else combineState.selectedIds.add(id);
     if (entry && entry.layer) entry.layer.setStyle(styleFor(entry));
@@ -1529,12 +886,6 @@
 
   function doCombine(targetEntries) {
     if (targetEntries.length < 2) return;
-    if (targetEntries.some((e) => mrBlockReason(e))) {
-      alert(
-        "One or more of these areas is locked (already resolved on MapRoulette, or currently being worked on by another mapper) - it can't be combined."
-      );
-      return;
-    }
 
     // Splitting deliberately leaves a ~1m gap between the pieces it creates (see
     // doSplit), so a plain union of two just-split areas would see them as
@@ -1580,14 +931,6 @@
       area,
       compactness,
       status: "unreviewed",
-      // Combine is local-only for now: the constituent areas' MapRoulette
-      // tasks (if any) are left untouched remotely, and the merged result
-      // starts unlinked - use its "Add task to challenge" button if you want
-      // to link it to a fresh MapRoulette task.
-      mrTaskId: null,
-      mrTaskStatus: null,
-      mrLocked: false,
-      mrActiveLockedBy: null,
     };
     restoreEntryFromSnapshot(newSnapshot);
 
@@ -1733,10 +1076,9 @@
   }
 
   function updateStats() {
-    let unreviewed = 0, flaggedUndecided = 0, excluded = 0, kept = 0;
+    let unreviewed = 0, flaggedUndecided = 0, kept = 0;
     entries.forEach((e) => {
-      if (e.status === "excluded") excluded++;
-      else if (e.status === "kept") kept++;
+      if (e.status === "kept") kept++;
       else if (e.flagged) flaggedUndecided++;
       else unreviewed++;
     });
@@ -1745,13 +1087,11 @@
       <div>Total: ${total}</div>
       <div>Unreviewed: ${unreviewed}</div>
       <div>Flagged, undecided: ${flaggedUndecided}</div>
-      <div>Excluded: ${excluded}</div>
       <div>Kept: ${kept}</div>
     `;
     document.querySelector('[data-count="all"]').textContent = total;
     document.querySelector('[data-count="flagged"]').textContent = flaggedUndecided;
     document.querySelector('[data-count="unreviewed"]').textContent = unreviewed;
-    document.querySelector('[data-count="excluded"]').textContent = excluded;
     document.querySelector('[data-count="kept"]').textContent = kept;
   }
 
@@ -1780,13 +1120,8 @@
     ids.forEach((id) => {
       const e = entries.get(id);
       const isCombineSelected = combineState && combineState.selectedIds.has(id);
-      const isMrQueued = mrDeleteQueue.has(id);
       const row = document.createElement("div");
-      row.className =
-        "feature-row" +
-        (id === selectedId ? " selected" : "") +
-        (isCombineSelected ? " combine-selected" : "") +
-        (isMrQueued ? " mr-delete-queued" : "");
+      row.className = "feature-row" + (id === selectedId ? " selected" : "") + (isCombineSelected ? " combine-selected" : "");
       row.dataset.id = id;
       row.innerHTML = `
         <span class="status-dot ${category(e)}"></span>
@@ -1841,17 +1176,11 @@
   function exportFiltered() {
     const features = [];
     entries.forEach((e) => {
-      if (e.status === "excluded") return;
       const properties = Object.assign({}, e.feature.properties);
       if (e.status === "kept") {
         properties[STATUS_PROPERTY] = "kept";
       } else {
         delete properties[STATUS_PROPERTY];
-      }
-      if (e.mrTaskId) {
-        properties.mr_taskId = String(e.mrTaskId);
-      } else {
-        delete properties.mr_taskId;
       }
       features.push(Object.assign({}, e.feature, { properties }));
     });

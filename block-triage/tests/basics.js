@@ -1,9 +1,9 @@
-const { launch, assertNoPageErrors, appUrl, sampleDataPath, tmpPath, assert, assertEqual, runTest } = require("./support");
+const { launch, assertNoPageErrors, localUrl, sampleDataPath, tmpPath, assert, assertEqual, runTest } = require("./support");
 
-runTest("basics: load, select+exclude via keyboard, export", async () => {
+runTest("basics: load, select+remove via keyboard, export", async () => {
   const { browser, page } = await launch();
 
-  await page.goto(appUrl());
+  await page.goto(localUrl());
   await page.waitForTimeout(500);
 
   await page.setInputFiles("#file-input", sampleDataPath("blocks.geojson"));
@@ -19,8 +19,8 @@ runTest("basics: load, select+exclude via keyboard, export", async () => {
 
   await page.keyboard.press("x");
   await page.waitForTimeout(300);
-  const statsAfterExclude = await page.$eval("#stats", (el) => el.textContent);
-  assert(statsAfterExclude.includes("Excluded: 1"), `expected 1 excluded after pressing x, got: ${statsAfterExclude}`);
+  const statsAfterRemove = await page.$eval("#stats", (el) => el.textContent);
+  assert(statsAfterRemove.includes("Total: 2386"), `expected 1 feature removed after pressing x, got: ${statsAfterRemove}`);
 
   const downloadPath = tmpPath("basics-export.geojson");
   const [download] = await Promise.all([page.waitForEvent("download"), page.click("#export-btn")]);
@@ -28,7 +28,7 @@ runTest("basics: load, select+exclude via keyboard, export", async () => {
 
   const fs = require("fs");
   const exported = JSON.parse(fs.readFileSync(downloadPath, "utf8"));
-  assertEqual(exported.features.length, 2386, "excluded feature should be dropped from the export");
+  assertEqual(exported.features.length, 2386, "removed feature should be gone from the export too - it was dropped from memory, not just marked");
 
   assertNoPageErrors(page);
   await browser.close();

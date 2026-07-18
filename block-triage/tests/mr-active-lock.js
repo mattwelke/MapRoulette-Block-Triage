@@ -1,4 +1,4 @@
-const { launch, assertNoPageErrors, appUrl, assert, assertEqual, runTest } = require("./support");
+const { launch, assertNoPageErrors, liveUrl, assert, assertEqual, runTest } = require("./support");
 
 function makeTask(id, status, lng, lat) {
   return {
@@ -93,10 +93,8 @@ runTest("mr-active-lock: tasks currently checked out on MapRoulette are locked, 
     }
   });
 
-  await page.goto(appUrl());
+  await page.goto(liveUrl());
   await page.waitForTimeout(500);
-  await page.click("#mr-live-sync-checkbox");
-  await page.waitForTimeout(200);
   await page.fill("#mr-api-key-input", "fake-test-key");
   await page.$eval("#mr-api-key-input", (el) => el.dispatchEvent(new Event("change")));
   await page.fill("#mr-challenge-id-input", String(CHALLENGE_ID));

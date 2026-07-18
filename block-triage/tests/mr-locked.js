@@ -1,4 +1,16 @@
-const { launch, assertNoPageErrors, appUrl, fixturePath, assert, assertEqual, runTest } = require("./support");
+const {
+  launch,
+  assertNoPageErrors,
+  liveUrl,
+  assert,
+  assertEqual,
+  runTest,
+  mrChallengeSampleTasks,
+  routeMrChallenge,
+  loadLiveChallenge,
+} = require("./support");
+
+const CHALLENGE_ID = 90001;
 
 runTest("mr-locked: already-resolved (Fixed/Already_Fixed) tasks are locked", async () => {
   const { browser, page } = await launch();
@@ -8,16 +20,13 @@ runTest("mr-locked: already-resolved (Fixed/Already_Fixed) tasks are locked", as
     await dialog.dismiss();
   });
 
-  await page.goto(appUrl());
-  await page.waitForTimeout(500);
-  await page.click("#mr-live-sync-checkbox");
-  await page.waitForTimeout(200);
-  await page.fill("#mr-api-key-input", "fake-test-key");
-  await page.$eval("#mr-api-key-input", (el) => el.dispatchEvent(new Event("change")));
-  await page.setInputFiles("#file-input", fixturePath("mr-challenge-sample.geojson"));
-  await page.waitForTimeout(1500);
+  await routeMrChallenge(page, CHALLENGE_ID, mrChallengeSampleTasks());
 
-  // Row #3 is Fixed by fixture design.
+  await page.goto(liveUrl());
+  await page.waitForTimeout(500);
+  await loadLiveChallenge(page, CHALLENGE_ID, "fake-test-key");
+
+  // Row #3 is Fixed by fixture design (see mrChallengeSampleTasks).
   const rows = await page.$$(".feature-row");
   await rows[3].click();
   await page.waitForTimeout(300);
@@ -25,14 +34,7 @@ runTest("mr-locked: already-resolved (Fixed/Already_Fixed) tasks are locked", as
   const popupHtml = await page.$eval(".leaflet-popup-content", (el) => el.innerHTML);
   assert(popupHtml.includes("mr-locked-note"), "locked popup should show the lock note");
   assert(!popupHtml.includes("data-split"), "locked popup should omit the Split button");
-  assert(!popupHtml.includes("data-mr-action"), "locked popup should omit the mr-action button, even with live sync on");
-
-  // Exclude/Keep/Reset are purely local and should still work.
-  await page.click('[data-action="excluded"]');
-  await page.waitForTimeout(200);
-  assertEqual(await page.$eval("[data-status]", (el) => el.textContent), "excluded", "Exclude should still work on a locked entry");
-  await page.click('[data-action="unreviewed"]');
-  await page.waitForTimeout(200);
+  assert(!popupHtml.includes("data-mr-action"), "locked popup should omit the mr-action button");
   await page.click(".leaflet-popup-close-button").catch(() => {});
   await page.waitForTimeout(200);
 

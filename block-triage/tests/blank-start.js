@@ -1,11 +1,11 @@
 const fs = require("fs");
-const { launch, assertNoPageErrors, appUrl, tmpPath, assert, assertEqual, runTest } = require("./support");
+const { launch, assertNoPageErrors, localUrl, tmpPath, assert, assertEqual, runTest } = require("./support");
 
 runTest("blank-start: New (blank) session, draw-from-scratch, confirm-before-discard", async () => {
   const { browser, page } = await launch();
   page.on("dialog", async (dialog) => await dialog.accept());
 
-  await page.goto(appUrl());
+  await page.goto(localUrl());
   await page.waitForTimeout(500);
 
   assert(await page.$eval("#export-btn", (el) => el.disabled), "export should start disabled with nothing loaded");
@@ -17,7 +17,7 @@ runTest("blank-start: New (blank) session, draw-from-scratch, confirm-before-dis
   assert(!(await page.$eval("#add-area-btn", (el) => el.disabled)), "add-area should enable after New (blank)");
   assertEqual(
     (await page.$eval("#stats", (el) => el.textContent)).replace(/\s+/g, " ").trim(),
-    "Total: 0 Unreviewed: 0 Flagged, undecided: 0 Excluded: 0 Kept: 0",
+    "Total: 0 Unreviewed: 0 Flagged, undecided: 0 Kept: 0",
     "a blank session should start with zero features"
   );
 

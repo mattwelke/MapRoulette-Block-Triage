@@ -1,10 +1,10 @@
-const { launch, assertNoPageErrors, appUrl, sampleDataPath, assert, assertEqual, runTest } = require("./support");
+const { launch, assertNoPageErrors, localUrl, sampleDataPath, assert, assertEqual, runTest } = require("./support");
 
 runTest("selection-pulse: the selected area gets an animated CSS pulse", async () => {
   const { browser, page } = await launch();
   page.on("dialog", async (dialog) => await dialog.accept());
 
-  await page.goto(appUrl());
+  await page.goto(localUrl());
   await page.waitForTimeout(500);
   await page.setInputFiles("#file-input", sampleDataPath("blocks.geojson"));
   await page.waitForTimeout(4000);

@@ -1,11 +1,11 @@
 const fs = require("fs");
-const { launch, assertNoPageErrors, appUrl, fixturePath, tmpPath, assert, assertEqual, runTest } = require("./support");
+const { launch, assertNoPageErrors, localUrl, fixturePath, tmpPath, assert, assertEqual, runTest } = require("./support");
 
 runTest("reference-layer: non-interactive overlay, never in stats/export", async () => {
   const { browser, page } = await launch();
   page.on("dialog", async (dialog) => await dialog.accept());
 
-  await page.goto(appUrl());
+  await page.goto(localUrl());
   await page.waitForTimeout(500);
   assert(await page.$eval("#clear-reference-btn", (el) => el.disabled), "clear-reference should start disabled");
 

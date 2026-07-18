@@ -1,14 +1,25 @@
-const fs = require("fs");
-const { launch, assertNoPageErrors, appUrl, fixturePath, tmpPath, assert, assertEqual, runTest } = require("./support");
+const {
+  launch,
+  assertNoPageErrors,
+  liveUrl,
+  assert,
+  assertEqual,
+  runTest,
+  mrChallengeSampleTasks,
+  routeMrChallenge,
+  loadLiveChallenge,
+} = require("./support");
 
-runTest("maproulette-basic: API key persistence, challenge auto-detect, add/remove labels, export round-trip", async () => {
+const CHALLENGE_ID = 90001;
+
+runTest("maproulette-basic: API key persistence, load, add/remove task labels", async () => {
   const { browser, page } = await launch();
   page.on("dialog", async (dialog) => await dialog.accept());
 
-  await page.goto(appUrl());
+  await routeMrChallenge(page, CHALLENGE_ID, mrChallengeSampleTasks());
+
+  await page.goto(liveUrl());
   await page.waitForTimeout(500);
-  await page.click("#mr-live-sync-checkbox");
-  await page.waitForTimeout(200);
 
   assertEqual(await page.$eval("#mr-api-key-input", (el) => el.value), "", "API key input should start empty");
 
@@ -36,25 +47,16 @@ runTest("maproulette-basic: API key persistence, challenge auto-detect, add/remo
   assertEqual(await page.$eval("#mr-api-key-input", (el) => el.value), "", "Clear should empty the API key input");
   await page.reload();
   await page.waitForTimeout(500);
-  assertEqual(await page.$eval("#mr-api-key-input", (el) => el.value), "", "cleared API key should stay empty after reload");
-
-  // Re-enable live sync (reload reset the checkbox state's DOM, though the
-  // underlying localStorage flag persisted) and load the synthetic challenge fixture.
-  const liveSyncOn = await page.$eval("#mr-live-sync-checkbox", (el) => el.checked);
-  if (!liveSyncOn) await page.click("#mr-live-sync-checkbox");
-  await page.fill("#mr-api-key-input", "fake-test-key-123");
-  await page.$eval("#mr-api-key-input", (el) => el.dispatchEvent(new Event("change")));
-  await page.setInputFiles("#file-input", fixturePath("mr-challenge-sample.geojson"));
-  await page.waitForTimeout(1500);
-
   assertEqual(
-    await page.$eval("#mr-challenge-id-input", (el) => el.value),
-    "90001",
-    "challenge ID should auto-detect from the loaded file's mr_challengeId"
+    await page.$eval("#mr-api-key-input", (el) => el.value),
+    "",
+    "cleared API key should stay empty after reload"
   );
-  assert((await page.$eval("#stats", (el) => el.textContent)).includes("Total: 10"), "expected the 10-feature fixture to load");
 
-  // Row #0 is unlocked and task-linked by design (see the fixture generator) -
+  await loadLiveChallenge(page, CHALLENGE_ID, "fake-test-key-123");
+  assert((await page.$eval("#stats", (el) => el.textContent)).includes("Total: 10"), "expected the 10-task fixture to load");
+
+  // Row #0 is unlocked and task-linked by design (see mrChallengeSampleTasks) -
   // its popup should offer "Remove task from challenge".
   const rows = await page.$$(".feature-row");
   await rows[0].click();
@@ -118,13 +120,12 @@ runTest("maproulette-basic: API key persistence, challenge auto-detect, add/remo
     "a freshly-drawn, unlinked area should offer Add"
   );
 
-  const downloadPath = tmpPath("maproulette-basic-export.geojson");
-  const [download] = await Promise.all([page.waitForEvent("download"), page.click("#export-btn")]);
-  await download.saveAs(downloadPath);
-  const exported = JSON.parse(fs.readFileSync(downloadPath, "utf8"));
-  assertEqual(exported.features.length, 11, "export should carry the original 10 plus the new area");
-  const withTaskId = exported.features.filter((f) => f.properties && f.properties.mr_taskId).length;
-  assertEqual(withTaskId, 10, "the 10 original features should still carry mr_taskId; the new one should not");
+  await page.click("[data-mr-action]");
+  await page.waitForTimeout(300);
+  assert(
+    (await page.$eval("[data-mr-status]", (el) => el.textContent)).includes("Added as MapRoulette task"),
+    "Add should create a new MapRoulette task and report its id"
+  );
 
   assertNoPageErrors(page);
   await browser.close();

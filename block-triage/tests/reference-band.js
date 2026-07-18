@@ -1,10 +1,10 @@
-const { launch, assertNoPageErrors, appUrl, fixturePath, assert, assertEqual, runTest } = require("./support");
+const { launch, assertNoPageErrors, localUrl, fixturePath, assert, assertEqual, runTest } = require("./support");
 
 runTest("reference-band: tessellated inner border, non-interactive, cleared on Clear", async () => {
   const { browser, page } = await launch();
   page.on("dialog", async (dialog) => await dialog.accept());
 
-  await page.goto(appUrl());
+  await page.goto(localUrl());
   await page.waitForTimeout(500);
 
   // The pattern <defs> should exist immediately, even before any reference file loads.

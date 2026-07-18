@@ -1,4 +1,15 @@
-const { launch, assertNoPageErrors, appUrl, fixturePath, assert, runTest } = require("./support");
+const {
+  launch,
+  assertNoPageErrors,
+  liveUrl,
+  assert,
+  runTest,
+  mrChallengeSampleTasks,
+  routeMrChallenge,
+  loadLiveChallenge,
+} = require("./support");
+
+const CHALLENGE_ID = 90001;
 
 runTest("maproulette-split: local split succeeds even when the MapRoulette sync fails", async () => {
   const { browser, page } = await launch();
@@ -8,27 +19,24 @@ runTest("maproulette-split: local split succeeds even when the MapRoulette sync 
     await dialog.accept();
   });
 
-  // Deterministically fail every MapRoulette task request, instead of relying
-  // on the real host being unreachable - this is what the split-sync failure
-  // path (see syncSplitToMapRoulette in app.js) needs to exercise.
-  await page.route("https://maproulette.org/api/v2/task/**", async (route) => {
-    await route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ status: "Error" }) });
-  });
+  const mrState = await routeMrChallenge(page, CHALLENGE_ID, mrChallengeSampleTasks());
 
-  await page.goto(appUrl());
+  await page.goto(liveUrl());
   await page.waitForTimeout(500);
-  await page.click("#mr-live-sync-checkbox");
-  await page.waitForTimeout(200);
-  await page.fill("#mr-api-key-input", "fake-test-key");
-  await page.$eval("#mr-api-key-input", (el) => el.dispatchEvent(new Event("change")));
-  await page.setInputFiles("#file-input", fixturePath("mr-challenge-sample.geojson"));
-  await page.waitForTimeout(1500);
+  await loadLiveChallenge(page, CHALLENGE_ID, "fake-test-key");
 
-  // Row #9 is the largest, unlocked, task-linked feature by design.
+  // Row #9 is the largest, unlocked, task-linked feature by design (see
+  // mrChallengeSampleTasks - area increases with mr_taskId).
   const rows = await page.$$(".feature-row");
   await rows[rows.length - 1].click();
   await page.waitForTimeout(300);
-  assert(!!(await page.$("[data-mr-action]")), "the feature being split should still be task-linked before splitting");
+  assert(!!(await page.$("[data-split]")), "the feature being split should be unlocked and splittable");
+
+  // syncSplitToMapRoulette deletes the original task first, then creates two
+  // new ones - fail that first delete deterministically to exercise the
+  // failure path without depending on real network conditions.
+  mrState.nextDeleteStatus = 500;
+
   await page.click("[data-split]");
   await page.waitForTimeout(300);
 
@@ -43,15 +51,21 @@ runTest("maproulette-split: local split succeeds even when the MapRoulette sync 
   await page.keyboard.press("Enter");
   await page.waitForTimeout(1000);
 
-  assert((await page.$eval("#stats", (el) => el.textContent)).includes("Total: 11"), "the local split should succeed regardless of remote sync outcome");
+  assert(
+    (await page.$eval("#stats", (el) => el.textContent)).includes("Total: 11"),
+    "the local split should succeed regardless of remote sync outcome"
+  );
 
-  // Give the async MapRoulette sync (delete + 2 creates) time to run and fail.
+  // Give the async MapRoulette sync (delete attempt) time to run and fail.
   await page.waitForTimeout(2000);
   assert(
     dialogs.some((d) => d.toLowerCase().includes("failed")),
     `expected an alert about the failed MapRoulette sync, got dialogs: ${JSON.stringify(dialogs)}`
   );
-  assert((await page.$eval("#stats", (el) => el.textContent)).includes("Total: 11"), "the failed sync should not undo the local split");
+  assert(
+    (await page.$eval("#stats", (el) => el.textContent)).includes("Total: 11"),
+    "the failed sync should not undo the local split"
+  );
 
   assertNoPageErrors(page);
   await browser.close();

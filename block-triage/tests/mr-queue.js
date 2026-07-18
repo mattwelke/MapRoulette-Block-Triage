@@ -1,4 +1,16 @@
-const { launch, assertNoPageErrors, appUrl, fixturePath, assert, assertEqual, runTest } = require("./support");
+const {
+  launch,
+  assertNoPageErrors,
+  liveUrl,
+  assert,
+  assertEqual,
+  runTest,
+  mrChallengeSampleTasks,
+  routeMrChallenge,
+  loadLiveChallenge,
+} = require("./support");
+
+const CHALLENGE_ID = 90001;
 
 runTest("mr-queue: Remove queues instead of deleting immediately, Cancel dequeues", async () => {
   const { browser, page } = await launch();
@@ -8,14 +20,11 @@ runTest("mr-queue: Remove queues instead of deleting immediately, Cancel dequeue
     await dialog.accept();
   });
 
-  await page.goto(appUrl());
+  await routeMrChallenge(page, CHALLENGE_ID, mrChallengeSampleTasks());
+
+  await page.goto(liveUrl());
   await page.waitForTimeout(500);
-  await page.click("#mr-live-sync-checkbox");
-  await page.waitForTimeout(200);
-  await page.fill("#mr-api-key-input", "fake-test-key");
-  await page.$eval("#mr-api-key-input", (el) => el.dispatchEvent(new Event("change")));
-  await page.setInputFiles("#file-input", fixturePath("mr-challenge-sample.geojson"));
-  await page.waitForTimeout(1500);
+  await loadLiveChallenge(page, CHALLENGE_ID, "fake-test-key");
 
   assertEqual(
     await page.$eval("#mr-queue-btn", (el) => el.textContent),

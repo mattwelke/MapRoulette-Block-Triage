@@ -1,9 +1,9 @@
-const { launch, assertNoPageErrors, appUrl, sampleDataPath, assert, runTest } = require("./support");
+const { launch, assertNoPageErrors, localUrl, sampleDataPath, assert, runTest } = require("./support");
 
 runTest("address-layer: Oakville overlay toggles without crashing", async () => {
   const { browser, page } = await launch();
 
-  await page.goto(appUrl());
+  await page.goto(localUrl());
   await page.waitForTimeout(500);
   await page.setInputFiles("#file-input", sampleDataPath("blocks.geojson"));
   await page.waitForTimeout(3000);

@@ -1,10 +1,10 @@
-const { launch, assertNoPageErrors, appUrl, fixturePath, assert, runTest } = require("./support");
+const { launch, assertNoPageErrors, localUrl, fixturePath, assert, runTest } = require("./support");
 
 runTest("split-add: split, add-new-area, undo/redo, cancel mid-draw", async () => {
   const { browser, page } = await launch();
   page.on("dialog", async (dialog) => await dialog.accept());
 
-  await page.goto(appUrl());
+  await page.goto(localUrl());
   await page.waitForTimeout(500);
   await page.setInputFiles("#file-input", fixturePath("square.geojson"));
   await page.waitForTimeout(1500);

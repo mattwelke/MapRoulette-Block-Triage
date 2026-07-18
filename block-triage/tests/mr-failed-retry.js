@@ -1,27 +1,26 @@
-const { launch, assertNoPageErrors, appUrl, fixturePath, assert, assertEqual, runTest } = require("./support");
+const {
+  launch,
+  assertNoPageErrors,
+  liveUrl,
+  assert,
+  assertEqual,
+  runTest,
+  mrChallengeSampleTasks,
+  routeMrChallenge,
+  loadLiveChallenge,
+} = require("./support");
+
+const CHALLENGE_ID = 90001;
 
 runTest("mr-failed-retry: a failed delete drops the queued styling and stays retryable", async () => {
   const { browser, page } = await launch();
   page.on("dialog", async (dialog) => await dialog.accept());
 
-  let count = 0;
-  await page.route("https://maproulette.org/api/v2/task/**", async (route) => {
-    count++;
-    if (count === 1) {
-      await route.fulfill({ status: 500, contentType: "application/json", body: "{}" });
-    } else {
-      await route.fulfill({ status: 200, contentType: "application/json", body: "{}" });
-    }
-  });
+  const mrState = await routeMrChallenge(page, CHALLENGE_ID, mrChallengeSampleTasks());
 
-  await page.goto(appUrl());
+  await page.goto(liveUrl());
   await page.waitForTimeout(500);
-  await page.click("#mr-live-sync-checkbox");
-  await page.waitForTimeout(200);
-  await page.fill("#mr-api-key-input", "fake-test-key");
-  await page.$eval("#mr-api-key-input", (el) => el.dispatchEvent(new Event("change")));
-  await page.setInputFiles("#file-input", fixturePath("mr-challenge-sample.geojson"));
-  await page.waitForTimeout(1500);
+  await loadLiveChallenge(page, CHALLENGE_ID, "fake-test-key");
 
   const rows = await page.$$(".feature-row");
   await rows[rows.length - 1].click();
@@ -30,7 +29,8 @@ runTest("mr-failed-retry: a failed delete drops the queued styling and stays ret
   await page.waitForTimeout(200);
   await page.click(".leaflet-popup-close-button").catch(() => {});
 
-  await page.click("#mr-queue-btn"); // process (will fail, since count===1)
+  mrState.nextDeleteStatus = 500;
+  await page.click("#mr-queue-btn"); // process (will fail once)
   await page.waitForTimeout(2000);
 
   const freshRows = await page.$$(".feature-row");

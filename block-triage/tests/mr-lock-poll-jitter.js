@@ -1,9 +1,20 @@
-const { launch, assertNoPageErrors, appUrl, sampleDataPath, assert, runTest } = require("./support");
+const {
+  launch,
+  assertNoPageErrors,
+  liveUrl,
+  assert,
+  runTest,
+  mrChallengeSampleTasks,
+  routeMrChallenge,
+  loadLiveChallenge,
+} = require("./support");
+
+const CHALLENGE_ID = 77001;
 
 runTest("mr-lock-poll-jitter: the background poll interval varies, not a fixed 60000ms", async () => {
   const { browser, page } = await launch();
 
-  // Record every setTimeout delay used anywhere in the app, before app.js
+  // Record every setTimeout delay used anywhere in the app, before live.js
   // runs, so we can inspect what scheduleMrLockPoll actually passed in.
   await page.addInitScript(() => {
     window.__delays = [];
@@ -14,26 +25,17 @@ runTest("mr-lock-poll-jitter: the background poll interval varies, not a fixed 6
     };
   });
 
-  await page.route("https://maproulette.org/api/v2/challenge/**/taskMarkers", async (route) => {
-    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ markers: [], overlaps: [] }) });
-  });
+  await routeMrChallenge(page, CHALLENGE_ID, mrChallengeSampleTasks());
 
-  await page.goto(appUrl());
+  await page.goto(liveUrl());
   await page.waitForTimeout(300);
-  await page.click("#mr-live-sync-checkbox");
-  await page.fill("#mr-api-key-input", "fake-test-key");
-  await page.$eval("#mr-api-key-input", (el) => el.dispatchEvent(new Event("change")));
-  await page.fill("#mr-challenge-id-input", "77001");
-  await page.$eval("#mr-challenge-id-input", (el) => el.dispatchEvent(new Event("change")));
-  await page.setInputFiles("#file-input", sampleDataPath("blocks.geojson"));
-  await page.waitForTimeout(1500);
+  await loadLiveChallenge(page, CHALLENGE_ID, "fake-test-key");
 
-  // Toggling live sync off/on repeatedly re-triggers kickMrLockPoll -> scheduleMrLockPoll
-  // each time, so we can collect several independent samples of the delay chosen.
+  // Re-firing the challenge ID field's change event re-triggers
+  // kickMrLockPoll -> scheduleMrLockPoll each time (same as changing it would),
+  // so this collects several independent samples of the delay chosen.
   for (let i = 0; i < 6; i++) {
-    await page.click("#mr-live-sync-checkbox"); // off
-    await page.waitForTimeout(50);
-    await page.click("#mr-live-sync-checkbox"); // back on
+    await page.$eval("#mr-challenge-id-input", (el) => el.dispatchEvent(new Event("change")));
     await page.waitForTimeout(150);
   }
 

@@ -1,5 +1,4 @@
-const fs = require("fs");
-const { launch, assertNoPageErrors, appUrl, tmpPath, assert, assertEqual, runTest } = require("./support");
+const { launch, assertNoPageErrors, liveUrl, assert, assertEqual, runTest } = require("./support");
 
 function makeTask(id, status, lng, lat) {
   return {
@@ -59,11 +58,12 @@ runTest("mr-load-challenge: pull a challenge straight from the API, no file uplo
     const start = pageNum * limit;
     await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(allTasks.slice(start, start + limit)) });
   });
+  await page.route(`https://maproulette.org/api/v2/challenge/${CHALLENGE_ID}/taskMarkers**`, async (route) => {
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ markers: [] }) });
+  });
 
-  await page.goto(appUrl());
+  await page.goto(liveUrl());
   await page.waitForTimeout(500);
-  await page.click("#mr-live-sync-checkbox");
-  await page.waitForTimeout(200);
   await page.fill("#mr-api-key-input", "fake-test-key");
   await page.$eval("#mr-api-key-input", (el) => el.dispatchEvent(new Event("change")));
   await page.fill("#mr-challenge-id-input", String(CHALLENGE_ID));
@@ -78,19 +78,14 @@ runTest("mr-load-challenge: pull a challenge straight from the API, no file uplo
     (await page.$eval("#mr-load-status", (el) => el.textContent)).includes(`Loaded ${TOTAL}`),
     "load status should confirm the total loaded"
   );
-  assert((await page.$eval("#file-name", (el) => el.textContent)).includes(`${TOTAL} features`), "file-name label should reflect the load");
   assert((await page.$eval("#stats", (el) => el.textContent)).includes(`Total: ${TOTAL}`), "stats should reflect the load");
+  assert(
+    (await page.$eval("#mr-live-banner-challenge", (el) => el.textContent)).includes(String(CHALLENGE_ID)),
+    "the live banner should reflect the loaded challenge ID"
+  );
 
   const lockedCount = await page.$$eval(".status-dot.locked", (els) => els.length);
   assert(lockedCount > 0, "expected some locked (Fixed/Already_Fixed) rows given the synthesized status mix");
-
-  const downloadPath = tmpPath("mr-load-challenge-export.geojson");
-  const [download] = await Promise.all([page.waitForEvent("download"), page.click("#export-btn")]);
-  await download.saveAs(downloadPath);
-  const exported = JSON.parse(fs.readFileSync(downloadPath, "utf8"));
-  assertEqual(exported.features.length, TOTAL, "export should carry every loaded task area");
-  assert(!!exported.features[0].properties.mr_taskId, "exported features should carry mr_taskId");
-  assertEqual(exported.features[0].properties.mr_challengeId, String(CHALLENGE_ID), "exported features should carry mr_challengeId");
 
   // Loading again with entries already present should ask for confirmation.
   const dialogMessages = [];

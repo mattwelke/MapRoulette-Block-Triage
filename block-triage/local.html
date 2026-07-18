@@ -3,31 +3,28 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Block Triage</title>
+<title>Block Triage - Local File Triage</title>
 <link rel="stylesheet" href="vendor/leaflet.css">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <div id="app">
-    <div id="mr-live-banner" hidden>
-      &#128308; LIVE: syncing with MapRoulette challenge <span id="mr-live-banner-challenge"></span>
-    </div>
-
     <header id="topbar">
-      <h1>Block Triage</h1>
+      <a id="back-link" href="index.html" title="Back to interface chooser">←</a>
+      <h1>Block Triage — Local File Triage</h1>
       <div id="file-controls">
         <label class="btn" for="file-input">Open GeoJSON&hellip;</label>
         <input type="file" id="file-input" accept=".geojson,.json,application/geo+json,application/json">
         <button id="new-blank-btn" title="Start an empty session with no source file, for drawing areas from scratch">New (blank)</button>
         <span id="file-name" class="muted">No file loaded</span>
-        <button id="undo-btn" disabled title="Undo last status change (Ctrl+Z)">&#8630; Undo</button>
+        <button id="undo-btn" disabled title="Undo last change (Ctrl+Z)">&#8630; Undo</button>
         <button id="redo-btn" disabled title="Redo (Ctrl+Shift+Z)">&#8631; Redo</button>
         <button id="export-btn" disabled>Export filtered GeoJSON</button>
         <button id="add-area-btn" disabled title="Draw a new area's outline by clicking points on the map">Add new area&hellip;</button>
         <button id="combine-area-btn" disabled title="Click 2+ adjacent areas to merge them back into one">Combine areas&hellip;</button>
-        <label id="quick-exclude-toggle" class="toggle-label" title="When on, clicking an area on the map immediately excludes it (click again to undo) instead of opening the review popup.">
-          <input type="checkbox" id="quick-exclude-checkbox">
-          Quick exclude mode (click map to exclude, no popup)
+        <label id="quick-remove-toggle" class="toggle-label" title="When on, clicking an area on the map immediately removes it (click again to undo) instead of opening the review popup.">
+          <input type="checkbox" id="quick-remove-checkbox">
+          Quick remove mode (click map to remove, no popup)
         </label>
         <span id="reference-controls">
           <label class="btn" for="reference-file-input">Load reference layer&hellip;</label>
@@ -48,49 +45,6 @@
       <aside id="sidebar">
         <div id="stats"></div>
 
-        <div id="maproulette">
-          <h2>MapRoulette</h2>
-          <label class="toggle-label">
-            <input type="checkbox" id="mr-live-sync-checkbox">
-            Live sync with MapRoulette
-          </label>
-          <div class="muted" id="mr-live-sync-hint">
-            Off by default: pure local triage, nothing here talks to
-            MapRoulette. Turn on to add/remove tasks per area and have
-            splits sync automatically.
-          </div>
-          <div id="mr-live-panel" hidden>
-            <label>
-              API key
-              <span class="mr-key-row">
-                <input type="password" id="mr-api-key-input" autocomplete="off" placeholder="paste your apiKey">
-                <button id="mr-api-key-clear-btn" title="Forget the stored API key">Clear</button>
-              </span>
-            </label>
-            <label>
-              Challenge ID
-              <input type="number" id="mr-challenge-id-input" placeholder="e.g. 55881">
-            </label>
-            <button id="mr-test-btn">Test connection</button>
-            <div id="mr-status" class="muted"></div>
-            <button id="mr-load-challenge-btn" title="Load every task in this challenge directly from MapRoulette - no GeoJSON file needed.">Load challenge from MapRoulette</button>
-            <div id="mr-load-status" class="muted"></div>
-            <div class="muted" id="mr-lock-poll-status" title="Background check for tasks someone else currently has open elsewhere on MapRoulette. Runs every ~60s (jittered) while live sync is on.">Task lock checks: not yet run.</div>
-            <hr>
-            <div class="muted">
-              "Remove task from challenge" queues the delete instead of
-              doing it right away — nothing is deleted until you process
-              the queue below, one task at a time.
-            </div>
-            <label id="mr-quick-queue-toggle" class="toggle-label" title="When on, clicking an area on the map (that's already linked to a MapRoulette task and isn't locked) queues or unqueues it for deletion instead of opening the review popup.">
-              <input type="checkbox" id="mr-quick-queue-checkbox">
-              Quick queue-delete mode (click map to queue for deletion)
-            </label>
-            <button id="mr-queue-btn" disabled>Process delete queue (0)</button>
-            <div id="mr-queue-status" class="muted"></div>
-          </div>
-        </div>
-
         <div id="thresholds">
           <h2>Auto-flag thresholds</h2>
           <label>
@@ -108,7 +62,6 @@
           <label><input type="radio" name="filter" value="all" checked> All (<span data-count="all">0</span>)</label>
           <label><input type="radio" name="filter" value="flagged"> Flagged, undecided (<span data-count="flagged">0</span>)</label>
           <label><input type="radio" name="filter" value="unreviewed"> Unreviewed (<span data-count="unreviewed">0</span>)</label>
-          <label><input type="radio" name="filter" value="excluded"> Excluded (<span data-count="excluded">0</span>)</label>
           <label><input type="radio" name="filter" value="kept"> Kept (<span data-count="kept">0</span>)</label>
         </div>
 
@@ -116,15 +69,12 @@
           <h2>Legend</h2>
           <div><span class="swatch unreviewed"></span> Unreviewed</div>
           <div><span class="swatch flagged"></span> Flagged (small/skinny)</div>
-          <div><span class="swatch excluded"></span> Excluded</div>
           <div><span class="swatch kept"></span> Kept</div>
-          <div><span class="swatch locked"></span> Locked (already Fixed/Already Fixed on MapRoulette)</div>
-          <div><span class="swatch active-lock"></span> Locked (checked out on MapRoulette right now)</div>
         </div>
 
         <div id="shortcuts">
           <h2>Keyboard shortcuts</h2>
-          <div><kbd>x</kbd> exclude selected</div>
+          <div><kbd>x</kbd> remove selected</div>
           <div><kbd>g</kbd> keep selected (good)</div>
           <div><kbd>r</kbd> reset selected to unreviewed</div>
           <div><kbd>j</kbd> / <kbd>k</kbd> next / previous in list</div>
@@ -146,6 +96,6 @@
 
   <script src="vendor/leaflet.js"></script>
   <script src="vendor/turf.min.js"></script>
-  <script src="app.js"></script>
+  <script src="local.js"></script>
 </body>
 </html>

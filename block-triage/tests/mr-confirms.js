@@ -1,4 +1,16 @@
-const { launch, assertNoPageErrors, appUrl, fixturePath, assert, assertEqual, runTest } = require("./support");
+const {
+  launch,
+  assertNoPageErrors,
+  liveUrl,
+  assert,
+  assertEqual,
+  runTest,
+  mrChallengeSampleTasks,
+  routeMrChallenge,
+  loadLiveChallenge,
+} = require("./support");
+
+const CHALLENGE_ID = 90001;
 
 runTest("mr-confirms: queueing needs no confirm, processing/splitting do", async () => {
   const { browser, page } = await launch();
@@ -8,14 +20,11 @@ runTest("mr-confirms: queueing needs no confirm, processing/splitting do", async
     await dialog.dismiss(); // specifically testing the decline path
   });
 
-  await page.goto(appUrl());
+  await routeMrChallenge(page, CHALLENGE_ID, mrChallengeSampleTasks());
+
+  await page.goto(liveUrl());
   await page.waitForTimeout(500);
-  await page.click("#mr-live-sync-checkbox");
-  await page.waitForTimeout(200);
-  await page.fill("#mr-api-key-input", "fake-test-key");
-  await page.$eval("#mr-api-key-input", (el) => el.dispatchEvent(new Event("change")));
-  await page.setInputFiles("#file-input", fixturePath("mr-challenge-sample.geojson"));
-  await page.waitForTimeout(1500);
+  await loadLiveChallenge(page, CHALLENGE_ID, "fake-test-key");
 
   const rows = await page.$$(".feature-row");
   await rows[rows.length - 1].click();
@@ -49,13 +58,10 @@ runTest("mr-confirms: queueing needs no confirm, processing/splitting do", async
   assert(queueLabelAfterDecline.includes("(1)"), `declining the confirm should leave the item queued, got: ${queueLabelAfterDecline}`);
 
   await page.click("[data-split]");
-  await page.waitForTimeout(300);
+  await page.waitForTimeout(600); // split does a live lock recheck before the confirm - give the mocked request time
   assertEqual(dialogs.length, 2, "clicking Split on a task-linked area should ask for a second confirm");
   assert(dialogs[1].includes("Splitting it will delete"), `expected a split-sync confirm, got: ${dialogs[1]}`);
-  assert(
-    await page.$eval("#draw-status", (el) => el.hidden),
-    "declining the split confirm should not enter draw mode"
-  );
+  assert(await page.$eval("#draw-status", (el) => el.hidden), "declining the split confirm should not enter draw mode");
 
   assertNoPageErrors(page);
   await browser.close();
