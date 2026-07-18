@@ -231,6 +231,36 @@ already resolved. Locked areas:
   from the file's data, not a live lookup, so it's consistent whether
   you're just browsing a file or actively syncing.
 
+**Locked (in-progress elsewhere) tasks.** While live sync is on, this tool
+also watches for another MapRoulette user actively having a task's page
+open (i.e. they've locked it by starting work on it there, or via another
+API client) — shown as a distinct brown, separate from the grey of an
+already-resolved task, since it's a temporary condition rather than a
+permanent one. The same restrictions apply (no split/combine/queue, but
+you can still open the popup and use Exclude/Keep/Reset). A few things
+worth understanding about how this works:
+- MapRoulette's API has no push/webhook mechanism for lock changes, so
+  this can only ever be as fresh as the last check — there's no way to
+  react the instant someone else opens a task. This tool polls in the
+  background every ~60 seconds (jittered by a few seconds either way, so
+  multiple people running this tool against the same challenge don't all
+  hit the API in lockstep) while live sync is on and something's loaded.
+- Right before anything that would actually delete a task — processing
+  the delete queue, or committing to a split on a task-linked area — it
+  does one more on-demand check of just that moment's lock state first,
+  since a background poll landing up to a minute earlier isn't good
+  enough right at the point something irreversible is about to happen.
+  If a queued area turns out to be freshly locked when its turn in the
+  queue comes up, it's skipped (not deleted) and called out in the final
+  summary rather than silently dropped.
+- A lock held by *you* (the same MapRoulette account as the API key)
+  doesn't count as blocking — only someone else's lock does, determined
+  by comparing against your own user ID from `GET /user/whoami`.
+- This is purely a live-sync concept (there's nowhere to store "someone
+  has this open right now" in a static GeoJSON file), so it has no effect
+  with live sync off, and turning live sync off immediately clears any
+  such styling rather than leaving it stale on screen.
+
 **Quick queue-delete mode** (checkbox in the MapRoulette panel, only
 relevant with live sync on) mirrors **Quick exclude mode** but for the
 delete queue: while it's on, clicking an area on the map queues it for

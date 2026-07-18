@@ -7,6 +7,7 @@
     excluded: "#e53935",
     kept: "#43a047",
     locked: "#9e9e9e",
+    "active-lock": "#6d4c41",
   };
 
   // Tasks already resolved on MapRoulette (independent of whether live sync
@@ -24,6 +25,23 @@
 
   function formatMrTaskStatus(rawStatus) {
     return rawStatus ? String(rawStatus).replace(/_/g, " ") : "unknown";
+  }
+
+  // The other reason an area can be locked: someone else currently has its
+  // MapRoulette task open (locked via the site's own "start working" flow,
+  // or another API client). Unlike the status-based lock above, this is only
+  // ever known live - there's no way to embed it in a static file - so it
+  // only applies while live sync is on, and only reflects however stale the
+  // last poll/recheck happened to be (MapRoulette's API has no push
+  // mechanism for this; see refreshMrLockState below).
+  function mrBlockReason(entry) {
+    if (entry.mrLocked) {
+      return `already "${formatMrTaskStatus(entry.mrTaskStatus)}" and is locked`;
+    }
+    if (mrLiveSync && entry.mrActiveLockedBy != null) {
+      return `currently being worked on by another MapRoulette user and is locked`;
+    }
+    return null;
   }
 
   // Numeric Task.status codes as returned by GET /challenge/{id}/tasks,
@@ -55,6 +73,15 @@
   /** @type {Set<string>} entry ids queued for MapRoulette task deletion, not yet actually deleted */
   let mrDeleteQueue = new Set();
   const MR_DELETE_PACE_MS = 400; // pause between deletes when processing the queue
+
+  // Background polling for "someone else has this task locked" - MapRoulette's
+  // API has no push mechanism, so this is the only way to notice. Jittered so
+  // that if several people run this tool at once, they don't all hammer the
+  // API in lockstep every 60s.
+  const MR_LOCK_POLL_BASE_MS = 60000;
+  const MR_LOCK_POLL_JITTER_MS = 5000; // vary +/- up to 5s
+  let mrLockPollTimer = null;
+  let mrCurrentUserId = null; // cached from /user/whoami so we can tell "someone else" from "me"
 
   /** @type {Map<string, {id:string, idx:number, feature:object, layer:L.Layer, area:number, compactness:number, status:string}>} */
   let entries = new Map();
@@ -210,6 +237,11 @@
     mrLiveSync = mrLiveSyncCheckbox.checked;
     localStorage.setItem("block-triage:mrLiveSync", String(mrLiveSync));
     updateMrLiveSyncUI();
+    // Restyle everything immediately - turning live sync off should make any
+    // stale "someone else has this locked" coloring disappear right away
+    // rather than lingering until the next poll would've fired.
+    recomputeFlagsAndRender();
+    kickMrLockPoll();
   });
   mrApiKeyInput.addEventListener("change", () => {
     mrApiKey = mrApiKeyInput.value.trim();
@@ -226,6 +258,7 @@
     mrChallengeId = mrChallengeIdInput.value.trim();
     localStorage.setItem("block-triage:mrChallengeId", mrChallengeId);
     updateMrLiveSyncUI();
+    kickMrLockPoll();
   });
   mrTestBtn.addEventListener("click", mrTestConnection);
   mrLoadChallengeBtn.addEventListener("click", loadChallengeFromMapRoulette);
@@ -416,6 +449,7 @@
         updateMrLiveSyncUI();
       }
     }
+    kickMrLockPoll();
   }
 
   function updateMrLiveSyncUI() {
@@ -441,10 +475,9 @@
   // areas for removal while triaging, without opening a popup for each one.
   // Only ever queues - actual deletion still requires "Process delete queue".
   function toggleQuickQueueDelete(entry) {
-    if (entry.mrLocked) {
-      alert(
-        `This area's MapRoulette task is already "${formatMrTaskStatus(entry.mrTaskStatus)}" and is locked - it can't be queued for deletion.`
-      );
+    const blockReason = mrBlockReason(entry);
+    if (blockReason) {
+      alert(`This area's MapRoulette task is ${blockReason} - it can't be queued for deletion.`);
       return;
     }
     if (!entry.mrTaskId) {
@@ -469,6 +502,7 @@
     mrQueueBtn.disabled = true;
     let done = 0;
     let failed = 0;
+    let skippedLocked = 0;
     for (const id of ids) {
       done++;
       mrDeleteQueue.delete(id);
@@ -476,6 +510,29 @@
       if (!entry || !entry.mrTaskId) {
         continue; // already gone or unlinked by some other means in the meantime
       }
+
+      // Just-in-time recheck - the queue may have sat around a while, and
+      // someone could have picked up this exact task in the meantime. Only
+      // the lock endpoint is refetched (not a full reload), so this is
+      // cheap; best-effort if it fails, since the delete attempt itself is
+      // the final word either way.
+      try {
+        await refreshMrLockState();
+      } catch (err) {
+        // ignore - fall through with whatever lock state we already had
+      }
+      const blockReason = mrBlockReason(entry);
+      if (blockReason) {
+        skippedLocked++;
+        mrQueueStatusEl.textContent = `Skipped task ${entry.mrTaskId} (${done} of ${ids.length}): ${blockReason}.`;
+        entry.layer.setStyle(styleFor(entry)); // drop the "queued" look, it's back to just linked
+        saveMarks();
+        updateStats();
+        renderList();
+        if (done < ids.length) await sleep(MR_DELETE_PACE_MS);
+        continue;
+      }
+
       mrQueueStatusEl.textContent = `Deleting ${done} of ${ids.length} (task ${entry.mrTaskId})…`;
       try {
         await mrDeleteTask(entry.mrTaskId);
@@ -492,10 +549,14 @@
       renderList();
       if (done < ids.length) await sleep(MR_DELETE_PACE_MS);
     }
+    const deleted = done - failed - skippedLocked;
+    const parts = [`deleted ${deleted} of ${done}`];
+    if (failed > 0) parts.push(`${failed} failed`);
+    if (skippedLocked > 0) parts.push(`${skippedLocked} skipped (now locked)`);
     mrQueueStatusEl.textContent =
-      failed === 0
-        ? `Done — deleted ${done} task${done === 1 ? "" : "s"}.`
-        : `Done — deleted ${done - failed} of ${done}; ${failed} failed and are still linked locally (click "Remove task from challenge" on them again to retry).`;
+      failed === 0 && skippedLocked === 0
+        ? `Done — deleted ${deleted} task${deleted === 1 ? "" : "s"}.`
+        : `Done — ${parts.join(", ")}; anything not deleted is still linked locally (click "Remove task from challenge" on it again to retry).`;
     updateMrQueueButton();
   }
 
@@ -653,6 +714,80 @@
     }
   }
 
+  // --- MapRoulette task locks (someone else actively working on a task) ---
+  //
+  // There's no push/webhook mechanism in MapRoulette's API for this, so the
+  // only option is polling. GET /challenge/{id}/tasks (used above) doesn't
+  // carry lock info at all - it only shows up on the lighter-weight
+  // taskMarkers endpoint, which conveniently covers the whole challenge in
+  // one call.
+
+  async function mrCurrentUser() {
+    if (mrCurrentUserId == null) {
+      const me = await mrRequest("/user/whoami");
+      mrCurrentUserId = me && me.id != null ? me.id : null;
+    }
+    return mrCurrentUserId;
+  }
+
+  async function refreshMrLockState() {
+    if (!mrApiKey || !mrChallengeId) return;
+    await mrCurrentUser();
+    const data = await mrRequest(`/challenge/${encodeURIComponent(mrChallengeId)}/taskMarkers`);
+    const markers = [];
+    if (data && Array.isArray(data.markers)) markers.push(...data.markers);
+    if (data && Array.isArray(data.overlaps)) {
+      data.overlaps.forEach((o) => {
+        if (o && Array.isArray(o.tasks)) markers.push(...o.tasks);
+      });
+    }
+    const lockedByTaskId = new Map();
+    markers.forEach((m) => {
+      if (m && m.id != null) lockedByTaskId.set(m.id, m.lockedBy != null ? m.lockedBy : null);
+    });
+
+    let changed = false;
+    entries.forEach((entry) => {
+      if (entry.mrTaskId == null) return;
+      const rawLockedBy = lockedByTaskId.has(entry.mrTaskId) ? lockedByTaskId.get(entry.mrTaskId) : null;
+      const activeLockedBy = rawLockedBy != null && rawLockedBy !== mrCurrentUserId ? rawLockedBy : null;
+      if (entry.mrActiveLockedBy !== activeLockedBy) {
+        entry.mrActiveLockedBy = activeLockedBy;
+        if (entry.layer) entry.layer.setStyle(styleFor(entry));
+        changed = true;
+      }
+    });
+    if (changed) renderList();
+  }
+
+  // Jittered so that if several people happen to have this tool open on the
+  // same challenge, their background polls don't all land on the API at
+  // exactly the same moment every time.
+  function scheduleMrLockPoll() {
+    clearTimeout(mrLockPollTimer);
+    if (!mrLiveSync || !mrChallengeId || entries.size === 0) return;
+    const jitter = Math.round((Math.random() * 2 - 1) * MR_LOCK_POLL_JITTER_MS);
+    mrLockPollTimer = setTimeout(async () => {
+      try {
+        await refreshMrLockState();
+      } catch (err) {
+        // silent - this is a background refresh; the next scheduled poll retries
+      }
+      scheduleMrLockPoll();
+    }, MR_LOCK_POLL_BASE_MS + jitter);
+  }
+
+  // Called whenever something changes that should make lock state fresh
+  // again right away, rather than waiting out whatever's left of the current
+  // poll interval: loading a dataset, toggling live sync on, or setting the
+  // challenge ID.
+  function kickMrLockPoll() {
+    clearTimeout(mrLockPollTimer);
+    if (!mrLiveSync || !mrChallengeId || entries.size === 0) return;
+    refreshMrLockState().catch(() => {});
+    scheduleMrLockPoll();
+  }
+
   function loadReferenceLayer(file) {
     const reader = new FileReader();
     reader.onload = () => {
@@ -785,6 +920,7 @@
         mrTaskId: parseMrTaskId(feature),
         mrTaskStatus,
         mrLocked: isLockedTaskStatus(mrTaskStatus),
+        mrActiveLockedBy: null, // filled in by refreshMrLockState, if/when it runs
       });
       orderedIds.push(id);
     });
@@ -826,6 +962,7 @@
 
   function category(entry) {
     if (entry.mrLocked) return "locked";
+    if (mrLiveSync && entry.mrActiveLockedBy != null) return "active-lock";
     if (entry.status === "excluded") return "excluded";
     if (entry.status === "kept") return "kept";
     if (entry.flagged) return "flagged";
@@ -837,6 +974,9 @@
     const color = COLORS[cat];
     if (entry.mrLocked) {
       return { color: "#616161", weight: 2, dashArray: null, fillColor: color, fillOpacity: 0.45 };
+    }
+    if (cat === "active-lock") {
+      return { color: "#4e342e", weight: 2, dashArray: null, fillColor: color, fillOpacity: 0.45 };
     }
     if (combineState && combineState.selectedIds.has(entry.id)) {
       return { color: "#9c27b0", weight: 4, dashArray: "6 3", fillColor: color, fillOpacity: 0.35 };
@@ -910,6 +1050,7 @@
   }
 
   function openPopup(entry) {
+    const blockReason = mrBlockReason(entry);
     const div = document.createElement("div");
     div.innerHTML = `
       <div><strong>Feature #${entry.idx}</strong></div>
@@ -917,10 +1058,12 @@
       <div>Compactness: ${entry.compactness.toFixed(3)}</div>
       <div>Status: <span data-status>${entry.status}</span></div>
       ${
-        entry.mrLocked
-          ? `<div class="mr-locked-note">&#128274; MapRoulette status: <strong>${formatMrTaskStatus(
-              entry.mrTaskStatus
-            )}</strong> — locked. Split and remove are disabled for already-resolved tasks.</div>`
+        blockReason
+          ? `<div class="mr-locked-note">&#128274; ${
+              entry.mrLocked
+                ? `MapRoulette status: <strong>${formatMrTaskStatus(entry.mrTaskStatus)}</strong>`
+                : `Currently being worked on by another MapRoulette user`
+            } — locked. Split and remove are disabled while this is the case.</div>`
           : ""
       }
       <div class="popup-actions">
@@ -928,9 +1071,9 @@
         <button data-action="kept">Keep</button>
         <button data-action="unreviewed">Reset</button>
       </div>
-      ${entry.mrLocked ? "" : `<div class="popup-actions"><button data-split>Split&hellip;</button></div>`}
+      ${blockReason ? "" : `<div class="popup-actions"><button data-split>Split&hellip;</button></div>`}
       ${
-        mrLiveSync && !entry.mrLocked
+        mrLiveSync && !blockReason
           ? `<div class="popup-actions"><button data-mr-action></button></div>
              <div class="mr-inline-status" data-mr-status></div>`
           : ""
@@ -944,8 +1087,23 @@
     });
     const splitBtn = div.querySelector("[data-split]");
     if (splitBtn) {
-      splitBtn.addEventListener("click", () => {
+      splitBtn.addEventListener("click", async () => {
         if (mrLiveSync && entry.mrTaskId) {
+          // Last-chance recheck right before committing to the split - the
+          // background poll could be up to about a minute stale, and this is
+          // the moment it actually matters.
+          splitBtn.disabled = true;
+          try {
+            await refreshMrLockState();
+          } catch (err) {
+            // best-effort - fall back to whatever lock state we already had
+          }
+          splitBtn.disabled = false;
+          const freshBlockReason = mrBlockReason(entry);
+          if (freshBlockReason) {
+            alert(`This area's MapRoulette task is ${freshBlockReason} - it can't be split.`);
+            return;
+          }
           const ok = confirm(
             `This area is linked to MapRoulette task ${entry.mrTaskId}. Splitting it will delete that task and create two new ones on MapRoulette once you finish drawing the cut. Continue?`
           );
@@ -956,7 +1114,7 @@
       });
     }
 
-    if (!mrLiveSync || entry.mrLocked) {
+    if (!mrLiveSync || blockReason) {
       const center = entry.layer.getBounds().getCenter();
       L.popup().setLatLng(center).setContent(div).openOn(map);
       return;
@@ -1094,6 +1252,7 @@
       mrTaskId: entry.mrTaskId,
       mrTaskStatus: entry.mrTaskStatus,
       mrLocked: entry.mrLocked,
+      mrActiveLockedBy: entry.mrActiveLockedBy,
     };
   }
 
@@ -1111,10 +1270,9 @@
   function doSplit(targetId, points) {
     const entry = entries.get(targetId);
     if (!entry) return;
-    if (entry.mrLocked) {
-      alert(
-        `This area's MapRoulette task is already "${formatMrTaskStatus(entry.mrTaskStatus)}" and is locked - it can't be split.`
-      );
+    const blockReason = mrBlockReason(entry);
+    if (blockReason) {
+      alert(`This area's MapRoulette task is ${blockReason} - it can't be split.`);
       return;
     }
 
@@ -1154,6 +1312,7 @@
         mrTaskId: null,
         mrTaskStatus: null,
         mrLocked: false,
+        mrActiveLockedBy: null,
       };
     });
     newSnapshots.forEach((snap) => restoreEntryFromSnapshot(snap));
@@ -1247,6 +1406,7 @@
       mrTaskId: null,
       mrTaskStatus: null,
       mrLocked: false,
+      mrActiveLockedBy: null,
     };
     restoreEntryFromSnapshot(snapshot);
 
@@ -1295,10 +1455,9 @@
   function toggleCombineSelection(id) {
     if (!combineState) return;
     const entry = entries.get(id);
-    if (!combineState.selectedIds.has(id) && entry && entry.mrLocked) {
-      alert(
-        `This area's MapRoulette task is already "${formatMrTaskStatus(entry.mrTaskStatus)}" and is locked - it can't be combined.`
-      );
+    const blockReason = entry && !combineState.selectedIds.has(id) ? mrBlockReason(entry) : null;
+    if (blockReason) {
+      alert(`This area's MapRoulette task is ${blockReason} - it can't be combined.`);
       return;
     }
     if (combineState.selectedIds.has(id)) combineState.selectedIds.delete(id);
@@ -1336,8 +1495,10 @@
 
   function doCombine(targetEntries) {
     if (targetEntries.length < 2) return;
-    if (targetEntries.some((e) => e.mrLocked)) {
-      alert("One or more of these areas has an already-resolved MapRoulette task and is locked - it can't be combined.");
+    if (targetEntries.some((e) => mrBlockReason(e))) {
+      alert(
+        "One or more of these areas is locked (already resolved on MapRoulette, or currently being worked on by another mapper) - it can't be combined."
+      );
       return;
     }
 
@@ -1392,6 +1553,7 @@
       mrTaskId: null,
       mrTaskStatus: null,
       mrLocked: false,
+      mrActiveLockedBy: null,
     };
     restoreEntryFromSnapshot(newSnapshot);
 
