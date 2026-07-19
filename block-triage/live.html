@@ -53,6 +53,10 @@
             Challenge ID
             <input type="number" id="mr-challenge-id-input" placeholder="e.g. 55881">
           </label>
+          <label title="Caps how many MapRoulette API requests may be in flight at once, across every queue.">
+            Max concurrent requests
+            <input type="number" id="mr-max-concurrent-input" value="3" min="1" step="1">
+          </label>
           <button id="mr-test-btn">Test connection</button>
           <div id="mr-status" class="muted"></div>
           <button id="mr-load-challenge-btn" title="Load every task in this challenge directly from MapRoulette">Load challenge from MapRoulette</button>

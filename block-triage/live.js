@@ -77,6 +77,43 @@
   const MR_QUEUE_PACE_MS = 400; // pause between requests when processing any of the queues
   let mrQuickQueueDeleteMode = localStorage.getItem("block-triage:mrQuickQueueDeleteMode") === "true";
 
+  // Caps how many MapRoulette API requests may be in flight at once, across
+  // every queue - each queue's own processing loop is already sequential
+  // internally, so this mostly matters once multiple queues are processed
+  // concurrently (e.g. "Process all pending"), keeping the combined request
+  // rate bounded rather than letting every queue hammer the API in parallel.
+  let mrMaxConcurrent = loadMrMaxConcurrent();
+  let mrActiveRequests = 0;
+  const mrSlotWaiters = [];
+
+  function loadMrMaxConcurrent() {
+    const stored = Number(localStorage.getItem("block-triage:mrMaxConcurrent"));
+    return Number.isInteger(stored) && stored > 0 ? stored : 3;
+  }
+  function saveMrMaxConcurrent() {
+    localStorage.setItem("block-triage:mrMaxConcurrent", String(mrMaxConcurrent));
+  }
+  // Waking a waiter and incrementing mrActiveRequests always happen together,
+  // synchronously, so a burst of wakeups (e.g. raising the limit) can't
+  // overshoot the cap while woken waiters are still resuming asynchronously.
+  function wakeMrWaitersIfRoom() {
+    while (mrActiveRequests < mrMaxConcurrent && mrSlotWaiters.length > 0) {
+      mrActiveRequests++;
+      mrSlotWaiters.shift()();
+    }
+  }
+  async function acquireMrSlot() {
+    if (mrActiveRequests < mrMaxConcurrent) {
+      mrActiveRequests++;
+      return;
+    }
+    await new Promise((resolve) => mrSlotWaiters.push(resolve));
+  }
+  function releaseMrSlot() {
+    mrActiveRequests--;
+    wakeMrWaitersIfRoom();
+  }
+
   // Background polling for "someone has this task locked" - MapRoulette's API
   // has no push mechanism, so this is the only way to notice. Jittered so
   // that if several people run this tool at once, they don't all hammer the
@@ -219,6 +256,7 @@
   const mrEditQueueBtn = document.getElementById("mr-edit-queue-btn");
   const mrEditQueueStatusEl = document.getElementById("mr-edit-queue-status");
   const mrQuickQueueCheckbox = document.getElementById("mr-quick-queue-checkbox");
+  const mrMaxConcurrentInput = document.getElementById("mr-max-concurrent-input");
 
   mrApiKeyInput.value = mrApiKey;
   mrChallengeIdInput.value = mrChallengeId;
@@ -257,6 +295,15 @@
     mrQuickQueueDeleteMode = mrQuickQueueCheckbox.checked;
     localStorage.setItem("block-triage:mrQuickQueueDeleteMode", String(mrQuickQueueDeleteMode));
     appEl.classList.toggle("mr-quick-queue-active", mrQuickQueueDeleteMode);
+  });
+
+  mrMaxConcurrentInput.value = mrMaxConcurrent;
+  mrMaxConcurrentInput.addEventListener("change", () => {
+    const n = Math.floor(Number(mrMaxConcurrentInput.value));
+    mrMaxConcurrent = Number.isInteger(n) && n > 0 ? n : 3;
+    mrMaxConcurrentInput.value = mrMaxConcurrent;
+    saveMrMaxConcurrent();
+    wakeMrWaitersIfRoom(); // a waiter blocked under the old, lower cap may now fit
   });
 
   targetAreaLimitInput.value = targetAreaLimit;
@@ -606,25 +653,30 @@
 
   async function mrRequest(path, options) {
     if (!mrApiKey) throw new Error("Set your MapRoulette API key first.");
-    const res = await fetch(MR_API_BASE + path, {
-      ...options,
-      headers: Object.assign(
-        { apiKey: mrApiKey, "Content-Type": "application/json", From: "Block Triage - tronnalegacy@pm.me" },
-        (options && options.headers) || {}
-      ),
-    });
-    if (!res.ok) {
-      let detail = "";
-      try {
-        detail = await res.text();
-      } catch (err) {
-        // ignore - use status text below
+    await acquireMrSlot();
+    try {
+      const res = await fetch(MR_API_BASE + path, {
+        ...options,
+        headers: Object.assign(
+          { apiKey: mrApiKey, "Content-Type": "application/json", From: "Block Triage - tronnalegacy@pm.me" },
+          (options && options.headers) || {}
+        ),
+      });
+      if (!res.ok) {
+        let detail = "";
+        try {
+          detail = await res.text();
+        } catch (err) {
+          // ignore - use status text below
+        }
+        throw new Error(`MapRoulette API ${res.status}: ${detail || res.statusText}`);
       }
-      throw new Error(`MapRoulette API ${res.status}: ${detail || res.statusText}`);
+      if (res.status === 204 || res.status === 304) return null;
+      const text = await res.text();
+      return text ? JSON.parse(text) : null;
+    } finally {
+      releaseMrSlot();
     }
-    if (res.status === 204 || res.status === 304) return null;
-    const text = await res.text();
-    return text ? JSON.parse(text) : null;
   }
 
   async function mrTestConnection() {
@@ -2024,4 +2076,9 @@
   // Test-only hook (see tests/mr-edit-boundary.js) - there's no
   // export/download path in this page to inspect resulting geometry otherwise.
   window.__blockTriageGetEntries = () => entries;
+
+  // Test-only hook (see tests/mr-max-concurrent.js) - the semaphore itself
+  // has no visible effect in the UI unless multiple requests actually
+  // overlap, which none of today's queues do on their own.
+  window.__blockTriageMrSlotTest = { acquireMrSlot, releaseMrSlot, getActive: () => mrActiveRequests };
 })();

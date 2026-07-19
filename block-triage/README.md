@@ -135,6 +135,13 @@ challenge the moment you confirm it.
 - **Test connection** — a harmless `GET /user/whoami` call to confirm the
   key (and your browser's ability to reach the API at all) works before
   you rely on it for anything real.
+- **Max concurrent requests** — caps how many MapRoulette API requests this
+  tool will have in flight at once, across every queue (defaults to 3,
+  persists via `localStorage`). Each queue's own processing loop is already
+  sequential internally, so this mostly matters when multiple queues end up
+  being processed at the same time (e.g. via "Process all pending") — it
+  keeps the combined request rate bounded instead of letting every queue
+  hammer the API in parallel.
 - **Load challenge from MapRoulette** — pulls every task in the given
   Challenge ID directly from the API (paging through 500 at a time under
   the hood). Each task's geometry becomes an area here, stamped with
