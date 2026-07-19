@@ -202,20 +202,24 @@ list, and the stats immediately. Anything that fails stays exactly as it
 was (unqueued, reported at the end so you know what to retry) — a failed
 add stays unlinked, a failed removal stays linked.
 
-**Splitting** works as a queue too, same idea as adding/removing/editing:
-clicking **Split…**, drawing the cut, and finishing it doesn't split the
-area right away — it validates the cut immediately (so a bad cut is
-rejected on the spot) and then queues it, showing an orange dashed outline
-on the map and in the list. **Process split queue N** (in the MapRoulette
-panel) actually performs the split, one area at a time: the local split
-happens first, then - if the area was task-linked - its MapRoulette task
-is deleted and two new ones are created for the pieces, the same mechanic
-this used before splitting was a queue.
+**Splitting** applies locally right away, same as combining or drawing a
+new area — clicking **Split…**, drawing the cut, and finishing it
+immediately replaces the area with its resulting pieces (an orange dashed
+outline on the map and in the list). Only the MapRoulette side is queued:
+**Process split queue N** (in the MapRoulette panel) syncs it, one split at
+a time — if the area was task-linked, its old task is deleted and a new
+task is created for every piece still standing.
 
-While a split is pending, that area is off-limits to everything else -
-combining, editing its boundary, quick queue-delete, and re-splitting are
-all refused (with an explanation) until the pending split is either
-processed or canceled via **Cancel pending split** in its popup.
+While a split's pieces are still pending (not yet processed), each is
+off-limits to everything else — combining, editing its boundary, quick
+queue-delete, and re-splitting are all refused (with an explanation) —
+except one thing: each piece's popup offers **Drop this piece**, which
+discards just that piece (its geometry is gone, not merged anywhere) and
+leaves the rest of the group pending. At least one piece must remain; to
+back out of the split entirely, undo it (`Ctrl+Z`) instead. Dropping a
+piece is its own undoable step, separate from the split itself — undoing
+once brings back the dropped piece, undoing again reverses the whole
+split back to the original area.
 
 ### Drawing new areas
 

@@ -12,7 +12,7 @@ const {
 
 const CHALLENGE_ID = 90001;
 
-runTest("maproulette-split: queued split applies locally even when the MapRoulette sync fails", async () => {
+runTest("maproulette-split: split applies locally right away even when the MapRoulette sync fails", async () => {
   const { browser, page } = await launch();
   const dialogs = [];
   page.on("dialog", async (dialog) => {
@@ -47,15 +47,16 @@ runTest("maproulette-split: queued split applies locally even when the MapRoulet
   await page.keyboard.press("Enter");
   await page.waitForTimeout(300);
 
-  // Finishing the cut only queues the split - nothing changes locally yet.
+  // Finishing the cut applies the split locally right away - only the
+  // MapRoulette sync (delete old task, create new ones) is queued.
   assert(
-    (await page.$eval("#stats", (el) => el.textContent)).includes("Total: 10"),
-    "the split should be queued, not applied, right after drawing the cut"
+    (await page.$eval("#stats", (el) => el.textContent)).includes("Total: 11"),
+    "the split should apply locally as soon as the cut finishes"
   );
   assertEqual(
     await page.$eval("#mr-split-queue-btn", (el) => el.textContent),
     "Process split queue (1)",
-    "the split should be queued for processing"
+    "the split's MapRoulette sync should be queued for processing"
   );
 
   // processSplitQueue deletes the original task first, then creates two new
@@ -68,7 +69,7 @@ runTest("maproulette-split: queued split applies locally even when the MapRoulet
 
   assert(
     (await page.$eval("#stats", (el) => el.textContent)).includes("Total: 11"),
-    "the local split should succeed regardless of remote sync outcome"
+    "the local split should be unaffected by the remote sync outcome"
   );
   assert(
     dialogs.some((d) => d.toLowerCase().includes("failed")),

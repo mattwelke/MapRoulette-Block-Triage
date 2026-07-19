@@ -43,11 +43,11 @@
   }
 
   // Like mrBlockReason, but also blocks other structural actions (combine,
-  // edit boundary, quick queue-delete, split again) on an area that's
-  // already queued for a split - its geometry is about to be replaced, so it
+  // edit boundary, quick queue-delete, split again) on a piece that's still
+  // part of an unprocessed split group - it might yet be dropped, so it
   // shouldn't be touched by anything else in the meantime.
   function structuralBlockReason(entry) {
-    if (splitQueue.has(entry.id)) return "queued for a pending split";
+    if (entry.pendingSplitGroup != null) return "queued for a pending split";
     if (entry.pendingReplace) return "queued for a pending replace";
     return mrBlockReason(entry);
   }
@@ -84,13 +84,15 @@
   // edited; editing an unlinked area is just a local geometry change.
   /** @type {Set<string>} */
   let mrEditQueue = new Set();
-  // Entry ids with a queued split, mapped to the already-computed pieces
-  // (see computeSplitPieces) - the geometric split doesn't actually happen
-  // locally until this is processed, same idea as every other queue here.
-  // Queuing an entry for a split also blocks other structural actions on it
-  // (combine, edit boundary, quick queue-delete) via structuralBlockReason,
-  // so its geometry can't change out from under the already-computed pieces
-  // while it waits to be processed.
+  // Groups queued by a split, keyed by a synthetic group id, mapped to the
+  // original's snapshot and the snapshots of its still-live resulting
+  // pieces (see queueSplit/dropSplitPiece). The local split already
+  // happened by the time a group lands here - only the MapRoulette sync
+  // (delete the original's task, create tasks for the pieces) is deferred
+  // to processing. Each piece carries entry.pendingSplitGroup, which also
+  // blocks other structural actions on it (combine, edit boundary, quick
+  // queue-delete, splitting it again) via structuralBlockReason until its
+  // group is processed or it's dropped/undone.
   /** @type {Map<string, {originalSnapshot: object, newSnapshots: object[]}>} */
   let splitQueue = new Map();
   // Groups queued by "Replace areas…", keyed by a synthetic group id, mapped
@@ -1176,7 +1178,7 @@
     if (replaceState && replaceState.phase === "selecting" && replaceState.selectedIds.has(entry.id)) {
       return { color: "#00838f", weight: 4, dashArray: "6 3", fillColor: color, fillOpacity: 0.35 };
     }
-    if (splitQueue.has(entry.id)) {
+    if (entry.pendingSplitGroup != null) {
       return { color: "#ef6c00", weight: 4, dashArray: "2 4", fillColor: color, fillOpacity: 0.35 };
     }
     if (entry.pendingReplace) {
@@ -1269,7 +1271,9 @@
 
   function openPopup(entry) {
     const lockReason = mrBlockReason(entry);
-    const splitPending = splitQueue.has(entry.id);
+    const splitGroupId = entry.pendingSplitGroup;
+    const splitPending = splitGroupId != null;
+    const splitGroup = splitPending ? splitQueue.get(splitGroupId) : null;
     const replacePending = entry.pendingReplace === true;
     const div = document.createElement("div");
     div.innerHTML = `
@@ -1285,7 +1289,13 @@
             } — locked. Split and remove are disabled while this is the case.</div>`
           : ""
       }
-      ${splitPending ? `<div class="mr-locked-note">Queued for a pending split.</div>` : ""}
+      ${
+        splitPending
+          ? `<div class="mr-locked-note">Part of a pending split (${
+              splitGroup ? splitGroup.newSnapshots.length : 1
+            } piece${splitGroup && splitGroup.newSnapshots.length === 1 ? "" : "s"} still pending) — use Undo to reverse the whole split, or process the split queue to sync it.</div>`
+          : ""
+      }
       ${
         replacePending
           ? `<div class="mr-locked-note">Queued for a pending replace — use Undo to reverse it, or process the replace queue to apply it.</div>`
@@ -1295,7 +1305,7 @@
         lockReason || replacePending
           ? ""
           : splitPending
-          ? `<div class="popup-actions"><button data-cancel-split>Cancel pending split</button></div>`
+          ? `<div class="popup-actions"><button data-drop-split-piece>Drop this piece</button></div>`
           : `<div class="popup-actions"><button data-split>Split&hellip;</button><button data-edit-boundary>Edit boundary&hellip;</button></div>`
       }
       ${
@@ -1332,15 +1342,9 @@
       });
     }
 
-    const cancelSplitBtn = div.querySelector("[data-cancel-split]");
-    if (cancelSplitBtn) {
-      cancelSplitBtn.addEventListener("click", () => {
-        splitQueue.delete(entry.id);
-        entry.layer.setStyle(styleFor(entry));
-        updateSplitQueueButton();
-        renderList();
-        map.closePopup();
-      });
+    const dropSplitPieceBtn = div.querySelector("[data-drop-split-piece]");
+    if (dropSplitPieceBtn) {
+      dropSplitPieceBtn.addEventListener("click", () => dropSplitPiece(entry));
     }
 
     const editBoundaryBtn = div.querySelector("[data-edit-boundary]");
@@ -1438,6 +1442,7 @@
     else if (action.type === "combine") undoCombine(action);
     else if (action.type === "edit") undoEdit(action);
     else if (action.type === "replace") undoReplace(action);
+    else if (action.type === "drop-split-piece") undoDropSplitPiece(action);
     redoStack.push(action);
     updateUndoRedoButtons();
   }
@@ -1450,6 +1455,7 @@
     else if (action.type === "combine") redoCombine(action);
     else if (action.type === "edit") redoEdit(action);
     else if (action.type === "replace") redoReplace(action);
+    else if (action.type === "drop-split-piece") redoDropSplitPiece(action);
     undoStack.push(action);
     updateUndoRedoButtons();
   }
@@ -1496,10 +1502,8 @@
   // --- Split ---
 
   // Pure geometry: computes the two (or more) pieces a cut line would
-  // produce, without touching entries/undoStack/MapRoulette. Used both when
-  // queuing a split (so a bad cut is rejected immediately, with the map
-  // still showing the original area) and, unchanged, when the queue is
-  // later processed.
+  // produce, without touching entries/undoStack/MapRoulette - a bad cut is
+  // rejected here immediately, before anything local changes.
   function computeSplitPieces(entry, points) {
     let diffResult;
     try {
@@ -1540,10 +1544,12 @@
     return { originalSnapshot, newSnapshots };
   }
 
-  // Validates the cut and, if it works, queues the split rather than
-  // applying it right away - same idea as every other MapRoulette queue
-  // here. Nothing changes locally (or remotely) until "Process split queue"
-  // runs; the area just shows a dashed "pending split" outline meanwhile.
+  // Validates the cut and, if it works, applies the split locally right
+  // away (same as combine/add/replace) - only the MapRoulette sync is
+  // deferred to a queue. Each resulting piece is tagged pendingSplitGroup
+  // so it's visible and clickable (with its own "Drop this piece" action)
+  // while the group waits to be processed, but blocked from other
+  // structural actions (see structuralBlockReason) in the meantime.
   function queueSplit(targetId, points) {
     const entry = entries.get(targetId);
     if (!entry) return;
@@ -1554,32 +1560,96 @@
     }
     const pieces = computeSplitPieces(entry, points);
     if (!pieces) return;
-
-    splitQueue.set(targetId, pieces);
-    entry.layer.setStyle(styleFor(entry));
-    updateSplitQueueButton();
-    renderList();
-  }
-
-  // Actually performs the local split for one already-queued, already-
-  // validated entry - the same effect doSplit used to have immediately.
-  function applySplit(targetId, pieces) {
     const { originalSnapshot, newSnapshots } = pieces;
+
+    const groupId = hashString(JSON.stringify(originalSnapshot.id) + ":" + newFeatureCounter++);
+    newSnapshots.forEach((snap) => {
+      snap.pendingSplitGroup = groupId;
+    });
+
     removeEntry(targetId);
     // Only auto-queue the new pieces for adding if the original area had no
-    // MapRoulette task of its own - if it did, the split-queue processing
-    // loop creates their replacement tasks directly instead, bypassing the
-    // add queue entirely (an established, deliberate flow from before this
-    // was a queue itself).
+    // MapRoulette task of its own - if it did, processing the split queue
+    // creates their replacement tasks directly instead, bypassing the add
+    // queue entirely.
     if (!originalSnapshot.mrTaskId) {
       newSnapshots.forEach((snap) => mrAddQueue.add(snap.id));
     }
     newSnapshots.forEach((snap) => restoreEntryFromSnapshot(snap));
     updateMrAddQueueButton();
 
-    undoStack.push({ type: "split", original: originalSnapshot, newSnapshots });
+    splitQueue.set(groupId, { originalSnapshot, newSnapshots });
+    updateSplitQueueButton();
+
+    undoStack.push({ type: "split", groupId, original: originalSnapshot, newSnapshots });
     redoStack = [];
     updateUndoRedoButtons();
+    updateStats();
+    renderList();
+
+    selectFeature(newSnapshots[0].id);
+    panTo(entries.get(newSnapshots[0].id));
+  }
+
+  // Lets the user discard one resulting piece of a still-pending split
+  // before it's ever synced to MapRoulette - e.g. one side of the cut
+  // turned out to be junk. At least one piece must remain; to drop the
+  // last one, undo the whole split (Ctrl+Z) instead.
+  function dropSplitPiece(entry) {
+    const groupId = entry.pendingSplitGroup;
+    if (groupId == null) return;
+    const group = splitQueue.get(groupId);
+    if (!group) return;
+    if (group.newSnapshots.length <= 1) {
+      alert("At least one piece must remain from a split - undo the whole split (Ctrl+Z) instead if you don't want any of it.");
+      return;
+    }
+    const dropIndex = group.newSnapshots.findIndex((s) => s.id === entry.id);
+    if (dropIndex === -1) return;
+    const [snapshot] = group.newSnapshots.splice(dropIndex, 1);
+    removeEntry(entry.id);
+    mrAddQueue.delete(entry.id);
+    updateMrAddQueueButton();
+
+    undoStack.push({ type: "drop-split-piece", groupId, snapshot, dropIndex });
+    redoStack = [];
+    updateUndoRedoButtons();
+    updateStats();
+    renderList();
+    map.closePopup();
+  }
+
+  function undoDropSplitPiece(action) {
+    const group = splitQueue.get(action.groupId);
+    if (group) {
+      const idx = Math.min(action.dropIndex, group.newSnapshots.length);
+      group.newSnapshots.splice(idx, 0, action.snapshot);
+      action.snapshot.pendingSplitGroup = action.groupId;
+      if (!group.originalSnapshot.mrTaskId) mrAddQueue.add(action.snapshot.id);
+    } else {
+      // The split itself was already processed or undone in the meantime -
+      // just bring the piece back as a plain, no-longer-pending area.
+      action.snapshot.pendingSplitGroup = null;
+    }
+    restoreEntryFromSnapshot(action.snapshot);
+    updateMrAddQueueButton();
+    updateStats();
+    renderList();
+    selectFeature(action.snapshot.id);
+    panTo(entries.get(action.snapshot.id));
+  }
+
+  function redoDropSplitPiece(action) {
+    const group = splitQueue.get(action.groupId);
+    if (group) {
+      const idx = group.newSnapshots.findIndex((s) => s.id === action.snapshot.id);
+      if (idx !== -1) group.newSnapshots.splice(idx, 1);
+    }
+    removeEntry(action.snapshot.id);
+    mrAddQueue.delete(action.snapshot.id);
+    updateMrAddQueueButton();
+    updateStats();
+    renderList();
   }
 
   function updateSplitQueueButton() {
@@ -1588,62 +1658,46 @@
     updateProcessAllButton();
   }
 
-  // Applies every queued split, one at a time with the same pacing as the
-  // other queues: the local split happens immediately for each, and (if the
-  // original area was task-linked) its MapRoulette sync - delete the old
-  // task, create new ones for the pieces - runs right after, same mechanic
-  // splitting used before this was a queue.
+  // Syncs every queued split to MapRoulette, one group at a time with the
+  // same pacing as the other queues: deletes the original's task (if it had
+  // one) and creates a fresh task for every piece still in the group
+  // (dropped pieces were never part of it). Doesn't do a live lock recheck
+  // first (unlike the delete/edit queues) since the original is already
+  // gone locally by this point - there's no entry left to refresh against;
+  // a task that became locked in the meantime just fails the delete below
+  // and gets reported like any other failure.
   async function processSplitQueue() {
-    const ids = Array.from(splitQueue.keys());
-    if (ids.length === 0) return;
+    const groupIds = Array.from(splitQueue.keys());
+    if (groupIds.length === 0) return;
     const ok = confirm(
-      `This will split ${ids.length} area${ids.length === 1 ? "" : "s"} now, deleting and recreating any linked MapRoulette task one at a time. Continue?`
+      `This will sync ${groupIds.length} split${
+        groupIds.length === 1 ? "" : "s"
+      } to MapRoulette now, deleting the original task (where linked) and creating new ones for the resulting piece(s), one split at a time. Continue?`
     );
     if (!ok) return;
 
     mrSplitQueueBtn.disabled = true;
     let done = 0;
-    let skippedLocked = 0;
-    for (const id of ids) {
+    for (const groupId of groupIds) {
       done++;
-      const pieces = splitQueue.get(id);
-      splitQueue.delete(id);
-      const entry = entries.get(id);
-      if (!entry) continue; // gone by some other means in the meantime
-
-      if (entry.mrTaskId) {
-        // Just-in-time recheck, same reasoning as the other queues - the
-        // split may have sat around a while.
-        try {
-          await refreshMrLockState();
-        } catch (err) {
-          // ignore - fall through with whatever lock state we already had
+      const { originalSnapshot, newSnapshots } = splitQueue.get(groupId);
+      splitQueue.delete(groupId);
+      newSnapshots.forEach((snap) => {
+        snap.pendingSplitGroup = null;
+        const e = entries.get(snap.id);
+        if (e) {
+          e.pendingSplitGroup = null;
+          e.layer.setStyle(styleFor(e));
         }
-        const blockReason = mrBlockReason(entry);
-        if (blockReason) {
-          skippedLocked++;
-          mrSplitQueueStatusEl.textContent = `Skipped task ${entry.mrTaskId} (${done} of ${ids.length}): ${blockReason}.`;
-          entry.layer.setStyle(styleFor(entry)); // drop the "pending split" look
-          renderList();
-          if (done < ids.length) await sleep(MR_QUEUE_PACE_MS);
-          continue;
-        }
+      });
+      mrSplitQueueStatusEl.textContent = `Syncing split ${done} of ${groupIds.length}…`;
+      if (originalSnapshot.mrTaskId) {
+        await syncSplitToMapRoulette(originalSnapshot, newSnapshots);
       }
-
-      mrSplitQueueStatusEl.textContent = `Splitting ${done} of ${ids.length}${entry.mrTaskId ? ` (task ${entry.mrTaskId})` : ""}…`;
-      applySplit(id, pieces);
-      updateStats();
       renderList();
-      if (pieces.originalSnapshot.mrTaskId) {
-        await syncSplitToMapRoulette(pieces.originalSnapshot, pieces.newSnapshots);
-      }
-      if (done < ids.length) await sleep(MR_QUEUE_PACE_MS);
+      if (done < groupIds.length) await sleep(MR_QUEUE_PACE_MS);
     }
-    const split = done - skippedLocked;
-    mrSplitQueueStatusEl.textContent =
-      skippedLocked === 0
-        ? `Done — split ${split} area${split === 1 ? "" : "s"}.`
-        : `Done — split ${split} of ${done}, ${skippedLocked} skipped (now locked).`;
+    mrSplitQueueStatusEl.textContent = `Done — synced ${done} split${done === 1 ? "" : "s"}.`;
     updateSplitQueueButton();
   }
 
@@ -1676,6 +1730,8 @@
       removeEntry(snap.id);
       mrAddQueue.delete(snap.id);
     });
+    splitQueue.delete(action.groupId);
+    updateSplitQueueButton();
     restoreEntryFromSnapshot(action.original);
     updateMrAddQueueButton();
     updateStats();
@@ -1686,10 +1742,15 @@
 
   function redoSplit(action) {
     removeEntry(action.original.id);
+    action.newSnapshots.forEach((snap) => {
+      snap.pendingSplitGroup = action.groupId;
+    });
     if (!action.original.mrTaskId) {
       action.newSnapshots.forEach((snap) => mrAddQueue.add(snap.id));
     }
     action.newSnapshots.forEach((snap) => restoreEntryFromSnapshot(snap));
+    splitQueue.set(action.groupId, { originalSnapshot: action.original, newSnapshots: action.newSnapshots });
+    updateSplitQueueButton();
     updateMrAddQueueButton();
     updateStats();
     renderList();
@@ -2508,7 +2569,7 @@
       const isMrDeleteQueued = mrDeleteQueue.has(id);
       const isMrAddQueued = mrAddQueue.has(id);
       const isMrEditQueued = mrEditQueue.has(id);
-      const isSplitQueued = splitQueue.has(id);
+      const isSplitQueued = e.pendingSplitGroup != null;
       const isReplaceQueued = e.pendingReplace === true;
       const row = document.createElement("div");
       row.className =

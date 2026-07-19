@@ -98,11 +98,12 @@
           <div id="mr-edit-queue-status" class="muted"></div>
           <hr>
           <div class="muted">
-            "Split…" on an area's popup queues the split instead of doing it
-            right away - the area shows an orange dashed outline until you
-            process the queue below, which splits it locally and (if it was
-            task-linked) deletes the old MapRoulette task and creates two new
-            ones, one area at a time.
+            Splitting happens locally right away - the resulting pieces show
+            an orange dashed outline and can each be dropped ("Drop this
+            piece" in its popup, at least one must remain) until you process
+            the queue below, which syncs it to MapRoulette: deletes the old
+            task (if it was task-linked) and creates a new one for every
+            piece still standing, one split at a time.
           </div>
           <button id="mr-split-queue-btn" disabled>Process split queue (0)</button>
           <div id="mr-split-queue-status" class="muted"></div>
