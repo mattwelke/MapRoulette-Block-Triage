@@ -2,8 +2,9 @@
   "use strict";
 
   const COLORS = {
-    unreviewed: "#3388ff",
-    flagged: "#ff9800",
+    normal: "#3388ff",
+    oversized: "#e64a19",
+    undersized: "#fbc02d",
     locked: "#9e9e9e",
     "active-lock": "#6d4c41",
   };
@@ -88,7 +89,9 @@
   let entries = new Map();
   let orderedIds = []; // insertion order == original feature order
   let selectedId = null;
-  let thresholds = loadThresholds();
+  // Areas at least 2x this are "oversized" (a split candidate); areas at
+  // most half this are "undersized" (a combine candidate) - see category().
+  let targetAreaLimit = loadTargetAreaLimit();
   let newFeatureCounter = 0;
   let addedAreaCounter = 0;
   let undoStack = [];
@@ -187,8 +190,7 @@
 
   const statsEl = document.getElementById("stats");
   const featureListEl = document.getElementById("feature-list");
-  const areaThresholdInput = document.getElementById("area-threshold");
-  const compactnessThresholdInput = document.getElementById("compactness-threshold");
+  const targetAreaLimitInput = document.getElementById("target-area-limit");
   const appEl = document.getElementById("app");
   const undoBtn = document.getElementById("undo-btn");
   const redoBtn = document.getElementById("redo-btn");
@@ -257,8 +259,7 @@
     appEl.classList.toggle("mr-quick-queue-active", mrQuickQueueDeleteMode);
   });
 
-  areaThresholdInput.value = thresholds.area;
-  compactnessThresholdInput.value = thresholds.compactness;
+  targetAreaLimitInput.value = targetAreaLimit;
 
   referenceFileInput.addEventListener("change", (e) => {
     const file = e.target.files[0];
@@ -287,15 +288,10 @@
     else if (editState) cancelEditBoundary();
   });
 
-  areaThresholdInput.addEventListener("input", () => {
-    thresholds.area = Number(areaThresholdInput.value) || 0;
-    saveThresholds();
-    recomputeFlagsAndRender();
-  });
-  compactnessThresholdInput.addEventListener("input", () => {
-    thresholds.compactness = Number(compactnessThresholdInput.value) || 0;
-    saveThresholds();
-    recomputeFlagsAndRender();
+  targetAreaLimitInput.addEventListener("input", () => {
+    targetAreaLimit = Number(targetAreaLimitInput.value) || 5000;
+    saveTargetAreaLimit();
+    recomputeCategoriesAndRender();
   });
 
   document.querySelectorAll('input[name="filter"]').forEach((el) => {
@@ -356,18 +352,13 @@
     else if (e.key === "k") selectRelative(-1);
   });
 
-  function loadThresholds() {
-    try {
-      const stored = JSON.parse(localStorage.getItem("block-triage:thresholds"));
-      if (stored && typeof stored.area === "number" && typeof stored.compactness === "number") {
-        return stored;
-      }
-    } catch (e) {}
-    return { area: 150, compactness: 0.15 };
+  function loadTargetAreaLimit() {
+    const stored = Number(localStorage.getItem("block-triage:targetAreaLimit"));
+    return Number.isFinite(stored) && stored > 0 ? stored : 5000;
   }
 
-  function saveThresholds() {
-    localStorage.setItem("block-triage:thresholds", JSON.stringify(thresholds));
+  function saveTargetAreaLimit() {
+    localStorage.setItem("block-triage:targetAreaLimit", String(targetAreaLimit));
   }
 
   function hashString(str) {
@@ -736,7 +727,7 @@
       const parsed = mrTasksToFeatureCollection(tasks, mrChallengeId);
       buildEntries(parsed);
       renderMapLayers();
-      recomputeFlagsAndRender();
+      recomputeCategoriesAndRender();
       addAreaBtn.disabled = false;
       combineAreaBtn.disabled = false;
       updateMrBanner();
@@ -1011,8 +1002,9 @@
   function category(entry) {
     if (entry.mrLocked) return "locked";
     if (entry.mrActiveLockedBy != null) return "active-lock";
-    if (entry.flagged) return "flagged";
-    return "unreviewed";
+    if (entry.area >= targetAreaLimit * 2) return "oversized";
+    if (entry.area <= targetAreaLimit * 0.5) return "undersized";
+    return "normal";
   }
 
   function styleFor(entry) {
@@ -1044,7 +1036,7 @@
       // cleared here or a prior combine-selection dash pattern would stick.
       dashArray: null,
       fillColor: color,
-      fillOpacity: cat === "flagged" ? 0.4 : 0.15,
+      fillOpacity: cat === "oversized" || cat === "undersized" ? 0.4 : 0.15,
     };
   }
 
@@ -1306,7 +1298,6 @@
 
   function restoreEntryFromSnapshot(snapshot) {
     const entry = Object.assign({}, snapshot, { layer: null });
-    entry.flagged = entry.area < thresholds.area || entry.compactness < thresholds.compactness;
     entries.set(entry.id, entry);
     orderedIds.push(entry.id);
     attachLayer(entry);
@@ -1780,7 +1771,6 @@
     entry.feature = feature;
     entry.area = area;
     entry.compactness = compactness;
-    entry.flagged = area < thresholds.area || compactness < thresholds.compactness;
     attachLayer(entry);
     if (selectedId === entry.id) updateSelectionPulse();
   }
@@ -1917,9 +1907,8 @@
     drawState = null;
   }
 
-  function recomputeFlagsAndRender() {
+  function recomputeCategoriesAndRender() {
     entries.forEach((entry) => {
-      entry.flagged = entry.area < thresholds.area || entry.compactness < thresholds.compactness;
       if (entry.layer) entry.layer.setStyle(styleFor(entry));
     });
     updateStats();
@@ -1927,20 +1916,23 @@
   }
 
   function updateStats() {
-    let unreviewed = 0, flagged = 0;
+    let normal = 0, oversized = 0, undersized = 0;
     entries.forEach((e) => {
-      if (e.flagged) flagged++;
-      else unreviewed++;
+      if (e.area >= targetAreaLimit * 2) oversized++;
+      else if (e.area <= targetAreaLimit * 0.5) undersized++;
+      else normal++;
     });
     const total = entries.size;
     statsEl.innerHTML = `
       <div>Total: ${total}</div>
-      <div>Unreviewed: ${unreviewed}</div>
-      <div>Flagged, undecided: ${flagged}</div>
+      <div>Normal: ${normal}</div>
+      <div>Oversized (needs split): ${oversized}</div>
+      <div>Undersized (needs combine): ${undersized}</div>
     `;
     document.querySelector('[data-count="all"]').textContent = total;
-    document.querySelector('[data-count="flagged"]').textContent = flagged;
-    document.querySelector('[data-count="unreviewed"]').textContent = unreviewed;
+    document.querySelector('[data-count="oversized"]').textContent = oversized;
+    document.querySelector('[data-count="undersized"]').textContent = undersized;
+    document.querySelector('[data-count="normal"]').textContent = normal;
   }
 
   function currentFilter() {
@@ -1954,9 +1946,7 @@
       .filter((id) => {
         const e = entries.get(id);
         if (filter === "all") return true;
-        if (filter === "flagged") return e.flagged;
-        if (filter === "unreviewed") return !e.flagged;
-        return true;
+        return category(e) === filter;
       })
       .sort((a, b) => entries.get(a).area - entries.get(b).area);
   }

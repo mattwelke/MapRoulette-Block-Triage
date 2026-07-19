@@ -146,6 +146,20 @@ A persistent red **LIVE: editing MapRoulette challenge &lt;id&gt;** banner
 runs across the top of the page the whole time, so there's never any
 doubt that the actions here have real, remote consequences.
 
+**Area size coloring.** Unlike local file triage (which tracks a
+reviewed/kept/flagged status per area), live editing colors every area by
+how its size compares to a **target area limit** (set in the sidebar,
+defaulting to 5,000 m²):
+- **Oversized** (orange-red) — at least 2× the target limit, drawing
+  attention to it as a candidate to split.
+- **Undersized** (yellow) — at most half the target limit, suggesting you
+  look for a neighboring area to combine it with.
+- **Normal** (blue) — anything in between; no action suggested.
+
+Changing the target area limit re-colors the map, the list, and the stats
+immediately — there's no separate "flagged" status here, just this
+size-based classification recomputed live from each area's current area.
+
 **Per-area actions** (in the popup, alongside Split): for a linked area
 (one with a MapRoulette task, loaded or already added), a button reading
 **Remove task from challenge** or **Cancel pending removal**. For an

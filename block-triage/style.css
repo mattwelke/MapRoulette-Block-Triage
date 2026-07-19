@@ -4,6 +4,9 @@
   --kept: #43a047;
   --locked: #9e9e9e;
   --active-lock: #6d4c41;
+  --normal: #3388ff;
+  --oversized: #e64a19;
+  --undersized: #fbc02d;
   --border: #ddd;
   --bg-sidebar: #fafafa;
 }
@@ -307,6 +310,9 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 .swatch.unreviewed { background: var(--unreviewed); }
 .swatch.flagged { background: var(--flagged); }
 .swatch.kept { background: var(--kept); }
+.swatch.normal { background: var(--normal); }
+.swatch.oversized { background: var(--oversized); }
+.swatch.undersized { background: var(--undersized); }
 .swatch.locked { background: var(--locked); }
 .swatch.active-lock { background: var(--active-lock); }
 
@@ -396,6 +402,9 @@ kbd {
 .feature-row .status-dot.kept { background: var(--kept); }
 .feature-row .status-dot.locked { background: var(--locked); }
 .feature-row .status-dot.active-lock { background: var(--active-lock); }
+.feature-row .status-dot.normal { background: var(--normal); }
+.feature-row .status-dot.oversized { background: var(--oversized); }
+.feature-row .status-dot.undersized { background: var(--undersized); }
 
 .feature-row .meta {
   flex: 1;

@@ -91,28 +91,27 @@
         </div>
 
         <div id="thresholds">
-          <h2>Auto-flag thresholds</h2>
+          <h2>Target area size</h2>
           <label>
-            Small area &lt;
-            <input type="number" id="area-threshold" value="150" min="0" step="10"> m&sup2;
+            Target area limit
+            <input type="number" id="target-area-limit" value="5000" min="1" step="100"> m&sup2;
           </label>
-          <label>
-            Skinny (compactness) &lt;
-            <input type="number" id="compactness-threshold" value="0.15" min="0" max="1" step="0.01">
-          </label>
+          <div class="muted">Areas at 2&times; the limit or more are marked oversized (needs split); areas at 0.5&times; or less are marked undersized (needs combine).</div>
         </div>
 
         <div id="filters">
           <h2>Show</h2>
           <label><input type="radio" name="filter" value="all" checked> All (<span data-count="all">0</span>)</label>
-          <label><input type="radio" name="filter" value="flagged"> Flagged, undecided (<span data-count="flagged">0</span>)</label>
-          <label><input type="radio" name="filter" value="unreviewed"> Unreviewed (<span data-count="unreviewed">0</span>)</label>
+          <label><input type="radio" name="filter" value="oversized"> Oversized (<span data-count="oversized">0</span>)</label>
+          <label><input type="radio" name="filter" value="undersized"> Undersized (<span data-count="undersized">0</span>)</label>
+          <label><input type="radio" name="filter" value="normal"> Normal (<span data-count="normal">0</span>)</label>
         </div>
 
         <div id="legend">
           <h2>Legend</h2>
-          <div><span class="swatch unreviewed"></span> Unreviewed</div>
-          <div><span class="swatch flagged"></span> Flagged (small/skinny)</div>
+          <div><span class="swatch normal"></span> Normal</div>
+          <div><span class="swatch oversized"></span> Oversized (needs split)</div>
+          <div><span class="swatch undersized"></span> Undersized (needs combine)</div>
           <div><span class="swatch locked"></span> Locked (already Fixed/Already Fixed on MapRoulette)</div>
           <div><span class="swatch active-lock"></span> Locked (checked out on MapRoulette right now)</div>
         </div>
