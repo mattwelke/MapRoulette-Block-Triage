@@ -275,6 +275,8 @@
   const mrEditQueueStatusEl = document.getElementById("mr-edit-queue-status");
   const mrSplitQueueBtn = document.getElementById("mr-split-queue-btn");
   const mrSplitQueueStatusEl = document.getElementById("mr-split-queue-status");
+  const mrProcessAllBtn = document.getElementById("mr-process-all-btn");
+  const mrProcessAllStatusEl = document.getElementById("mr-process-all-status");
   const mrQuickQueueCheckbox = document.getElementById("mr-quick-queue-checkbox");
   const mrMaxConcurrentInput = document.getElementById("mr-max-concurrent-input");
 
@@ -290,6 +292,7 @@
   mrAddQueueBtn.addEventListener("click", processMrAddQueue);
   mrEditQueueBtn.addEventListener("click", processMrEditQueue);
   mrSplitQueueBtn.addEventListener("click", processSplitQueue);
+  mrProcessAllBtn.addEventListener("click", processAllQueues);
 
   mrApiKeyInput.addEventListener("change", () => {
     mrApiKey = mrApiKeyInput.value.trim();
@@ -445,6 +448,30 @@
   function updateMrQueueButton() {
     mrQueueBtn.textContent = `Process delete queue (${mrDeleteQueue.size})`;
     mrQueueBtn.disabled = mrDeleteQueue.size === 0;
+    updateProcessAllButton();
+  }
+
+  // Reflects the combined size of every queue - add/delete/edit/split - so
+  // "Process all pending" can be clicked once instead of hunting down each
+  // queue's own button individually.
+  function updateProcessAllButton() {
+    const total = mrDeleteQueue.size + mrAddQueue.size + mrEditQueue.size + splitQueue.size;
+    mrProcessAllBtn.textContent = `Process all pending (${total})`;
+    mrProcessAllBtn.disabled = total === 0;
+  }
+
+  // Runs every queue's own processing function in turn - each already
+  // handles its own confirm dialog (or lack thereof) and pacing, so this is
+  // just a convenience that saves clicking each queue's button separately.
+  async function processAllQueues() {
+    mrProcessAllBtn.disabled = true;
+    mrProcessAllStatusEl.textContent = "Processing every queue below…";
+    await processMrAddQueue();
+    await processMrDeleteQueue();
+    await processMrEditQueue();
+    await processSplitQueue();
+    updateProcessAllButton();
+    mrProcessAllStatusEl.textContent = "Done — see each queue's own status below for details.";
   }
 
   function sleep(ms) {
@@ -539,6 +566,7 @@
   function updateMrAddQueueButton() {
     mrAddQueueBtn.textContent = `Process add queue (${mrAddQueue.size})`;
     mrAddQueueBtn.disabled = mrAddQueue.size === 0;
+    updateProcessAllButton();
   }
 
   // Creates every still-queued, still-unlinked area as a new MapRoulette
@@ -582,6 +610,7 @@
   function updateMrEditQueueButton() {
     mrEditQueueBtn.textContent = `Process boundary-edit queue (${mrEditQueue.size})`;
     mrEditQueueBtn.disabled = mrEditQueue.size === 0;
+    updateProcessAllButton();
   }
 
   // Applies every queued boundary edit to MapRoulette: since there's no
@@ -1487,6 +1516,7 @@
   function updateSplitQueueButton() {
     mrSplitQueueBtn.textContent = `Process split queue (${splitQueue.size})`;
     mrSplitQueueBtn.disabled = splitQueue.size === 0;
+    updateProcessAllButton();
   }
 
   // Applies every queued split, one at a time with the same pacing as the

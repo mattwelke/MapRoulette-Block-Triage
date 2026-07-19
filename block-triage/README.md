@@ -178,6 +178,11 @@ the queue.
 Both directions work as queues rather than immediate actions, for the same
 reason: MapRoulette's task endpoints can be slow, and doing a whole batch
 one popup at a time, waiting on each request, isn't a great way to work.
+**Process all pending N** (near the top of the MapRoulette panel) runs
+every queue below - add, delete, boundary-edit, split - one after another
+in a single click, so you don't have to hunt down each queue's own button;
+each queue still asks for its own confirmation exactly where it normally
+would (add doesn't need one, the rest do).
 
 - **Adding**: every new, unlinked area (drawn, split, or combined) is
   automatically queued to be added — it shows a green dashed outline on the
