@@ -221,7 +221,8 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 #mr-test-btn,
 #mr-load-challenge-btn,
 #mr-queue-btn,
-#mr-add-queue-btn {
+#mr-add-queue-btn,
+#mr-edit-queue-btn {
   width: 100%;
   margin-top: 0.2rem;
 }
@@ -236,7 +237,8 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 #mr-load-status,
 #mr-lock-poll-status,
 #mr-queue-status,
-#mr-add-queue-status {
+#mr-add-queue-status,
+#mr-edit-queue-status {
   margin-top: 0.4rem;
   font-size: 0.8rem;
 }
@@ -365,6 +367,21 @@ kbd {
   border-color: #2e7d32;
   box-shadow: 0 0 0 1px #2e7d32 inset;
   background: #eaf5ea;
+}
+
+.feature-row.mr-edit-queued {
+  border-color: #1565c0;
+  box-shadow: 0 0 0 1px #1565c0 inset;
+  background: #e8f0fb;
+}
+
+.edit-vertex-icon {
+  width: 14px;
+  height: 14px;
+  background: #fff;
+  border: 2px solid #1565c0;
+  border-radius: 50%;
+  cursor: grab;
 }
 
 .feature-row .status-dot {

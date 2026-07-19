@@ -66,7 +66,14 @@
   // once instead of one popup at a time.
   /** @type {Set<string>} */
   let mrAddQueue = new Set();
-  const MR_QUEUE_PACE_MS = 400; // pause between requests when processing either queue
+  // Entry ids with a queued boundary edit (see "Edit boundary…") - the old
+  // MapRoulette task will be deleted and a new one created with the edited
+  // geometry once processed, since there's no in-place geometry update used
+  // here. Only ever populated for areas that were already linked when
+  // edited; editing an unlinked area is just a local geometry change.
+  /** @type {Set<string>} */
+  let mrEditQueue = new Set();
+  const MR_QUEUE_PACE_MS = 400; // pause between requests when processing any of the queues
   let mrQuickQueueDeleteMode = localStorage.getItem("block-triage:mrQuickQueueDeleteMode") === "true";
 
   // Background polling for "someone has this task locked" - MapRoulette's API
@@ -104,6 +111,8 @@
   let drawState = null;
   /** @type {null | {selectedIds: Set<string>}} */
   let combineState = null;
+  /** @type {null | {id: string, vertexMarkers: L.Marker[], previewLayer: L.Layer|null, snapStatus?: string}} */
+  let editState = null;
   /** @type {[number,number][]} known road/path intersection points ([lng,lat]) for the most recently fetched area */
   let roadSnapPoints = [];
   let roadSnapPointsBounds = null; // L.LatLngBounds already covered by roadSnapPoints
@@ -129,6 +138,11 @@
   // area (see the road-snapping section below) - populated once a fetch
   // resolves, cleared as soon as drawing ends.
   const roadSnapMarkersLayer = L.layerGroup().addTo(map);
+
+  // Draggable handle used for each vertex while editing an area's boundary
+  // (see "Edit boundary…") - a plain divIcon rather than Leaflet's default
+  // pin image, to match this app's dot-based visual language elsewhere.
+  const EDIT_VERTEX_ICON = L.divIcon({ className: "edit-vertex-icon", iconSize: [14, 14], iconAnchor: [7, 7] });
 
   // The working areas use the canvas renderer (set via preferCanvas above, for
   // performance with thousands of features), but canvas can't do SVG pattern
@@ -214,6 +228,8 @@
   const mrQueueStatusEl = document.getElementById("mr-queue-status");
   const mrAddQueueBtn = document.getElementById("mr-add-queue-btn");
   const mrAddQueueStatusEl = document.getElementById("mr-add-queue-status");
+  const mrEditQueueBtn = document.getElementById("mr-edit-queue-btn");
+  const mrEditQueueStatusEl = document.getElementById("mr-edit-queue-status");
   const mrQuickQueueCheckbox = document.getElementById("mr-quick-queue-checkbox");
 
   mrApiKeyInput.value = mrApiKey;
@@ -221,9 +237,11 @@
   updateMrBanner();
   updateMrQueueButton();
   updateMrAddQueueButton();
+  updateMrEditQueueButton();
   scheduleMrLockPoll();
   mrQueueBtn.addEventListener("click", processMrDeleteQueue);
   mrAddQueueBtn.addEventListener("click", processMrAddQueue);
+  mrEditQueueBtn.addEventListener("click", processMrEditQueue);
 
   mrApiKeyInput.addEventListener("change", () => {
     mrApiKey = mrApiKeyInput.value.trim();
@@ -275,10 +293,12 @@
   drawFinishBtn.addEventListener("click", () => {
     if (drawState) finishDrawing();
     else if (combineState) finishCombine();
+    else if (editState) finishEditBoundary();
   });
   drawCancelBtn.addEventListener("click", () => {
     if (drawState) cancelDrawing();
     else if (combineState) cancelCombine();
+    else if (editState) cancelEditBoundary();
   });
 
   areaThresholdInput.addEventListener("input", () => {
@@ -317,6 +337,17 @@
       } else if (e.key === "Escape") {
         e.preventDefault();
         cancelCombine();
+      }
+      return;
+    }
+
+    if (editState) {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        finishEditBoundary();
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        cancelEditBoundary();
       }
       return;
     }
@@ -500,6 +531,91 @@
         ? `Done — added ${added} task${added === 1 ? "" : "s"}.`
         : `Done — added ${added} of ${done}; ${failed} failed and ${failed === 1 ? "is" : "are"} still unlinked (use "Add now" on it, or queue it again, to retry).`;
     updateMrAddQueueButton();
+  }
+
+  function updateMrEditQueueButton() {
+    mrEditQueueBtn.textContent = `Process boundary-edit queue (${mrEditQueue.size})`;
+    mrEditQueueBtn.disabled = mrEditQueue.size === 0;
+  }
+
+  // Applies every queued boundary edit to MapRoulette: since there's no
+  // in-place geometry update used here, this deletes the old task and
+  // creates a fresh one with the edited shape - the same mechanic doSplit
+  // already uses for a linked area, just batched and paced like the other
+  // queues instead of happening immediately.
+  async function processMrEditQueue() {
+    const ids = Array.from(mrEditQueue);
+    if (ids.length === 0) return;
+    const ok = confirm(
+      `This will delete and recreate ${ids.length} task${ids.length === 1 ? "" : "s"} on MapRoulette with their edited boundaries, one at a time. Continue?`
+    );
+    if (!ok) return;
+
+    mrEditQueueBtn.disabled = true;
+    let done = 0;
+    let failed = 0;
+    let skippedLocked = 0;
+    for (const id of ids) {
+      done++;
+      mrEditQueue.delete(id);
+      const entry = entries.get(id);
+      if (!entry || !entry.mrTaskId) {
+        continue; // gone, or somehow unlinked by some other means in the meantime
+      }
+
+      // Just-in-time recheck, same reasoning as the delete queue - the edit
+      // may have sat around a while.
+      try {
+        await refreshMrLockState();
+      } catch (err) {
+        // ignore - fall through with whatever lock state we already had
+      }
+      const blockReason = mrBlockReason(entry);
+      if (blockReason) {
+        skippedLocked++;
+        mrEditQueueStatusEl.textContent = `Skipped task ${entry.mrTaskId} (${done} of ${ids.length}): ${blockReason}.`;
+        renderList();
+        if (done < ids.length) await sleep(MR_QUEUE_PACE_MS);
+        continue;
+      }
+
+      const oldTaskId = entry.mrTaskId;
+      mrEditQueueStatusEl.textContent = `Updating ${done} of ${ids.length} (task ${oldTaskId})…`;
+      try {
+        await mrDeleteTask(oldTaskId);
+      } catch (err) {
+        failed++;
+        mrEditQueueStatusEl.textContent = `Failed to remove the old task ${oldTaskId} (${done} of ${ids.length}): ${err.message}. Left queued to retry.`;
+        mrEditQueue.add(id); // nothing changed remotely yet - keep it queued
+        renderList();
+        if (done < ids.length) await sleep(MR_QUEUE_PACE_MS);
+        continue;
+      }
+      entry.mrTaskId = null; // the old task is gone remotely regardless of what happens next
+      try {
+        const created = await mrCreateTask(entry.feature);
+        entry.mrTaskId = created.id;
+      } catch (err) {
+        failed++;
+        mrEditQueueStatusEl.textContent = `Old task ${oldTaskId} removed, but creating its replacement failed (${done} of ${ids.length}): ${err.message}. This area is now unlinked - use "Add now" or "Queue for adding" on it to retry.`;
+        entry.layer.setStyle(styleFor(entry));
+        renderList();
+        if (done < ids.length) await sleep(MR_QUEUE_PACE_MS);
+        continue;
+      }
+      entry.layer.setStyle(styleFor(entry));
+      renderList();
+      if (done < ids.length) await sleep(MR_QUEUE_PACE_MS);
+    }
+    const updated = done - failed - skippedLocked;
+    const parts = [`updated ${updated} of ${done}`];
+    if (failed > 0) parts.push(`${failed} failed`);
+    if (skippedLocked > 0) parts.push(`${skippedLocked} skipped (now locked)`);
+    mrEditQueueStatusEl.textContent =
+      failed === 0 && skippedLocked === 0
+        ? `Done — updated ${updated} task${updated === 1 ? "" : "s"}.`
+        : `Done — ${parts.join(", ")}.`;
+    updateMrEditQueueButton();
   }
 
   function parseMrTaskId(feature) {
@@ -866,6 +982,10 @@
     mrAddQueue = new Set();
     updateMrAddQueueButton();
     mrAddQueueStatusEl.textContent = "";
+    mrEditQueue = new Set();
+    updateMrEditQueueButton();
+    mrEditQueueStatusEl.textContent = "";
+    if (editState) cancelEditBoundary();
 
     parsed.features.forEach((feature, idx) => {
       const id = hashString(JSON.stringify(feature.geometry));
@@ -927,6 +1047,9 @@
     if (mrAddQueue.has(entry.id)) {
       return { color: "#2e7d32", weight: 4, dashArray: "2 4", fillColor: color, fillOpacity: 0.35 };
     }
+    if (mrEditQueue.has(entry.id)) {
+      return { color: "#1565c0", weight: 4, dashArray: "2 4", fillColor: color, fillOpacity: 0.35 };
+    }
     const isSelected = entry.id === selectedId;
     return {
       color: isSelected ? "#000" : color,
@@ -970,6 +1093,12 @@
         toggleCombineSelection(entry.id);
         return;
       }
+      if (editState) {
+        // Editing is focused on one area at a time - Finish or Cancel it
+        // first rather than letting a click on some other area do anything.
+        L.DomEvent.stopPropagation(e);
+        return;
+      }
       selectFeature(entry.id);
       if (mrQuickQueueDeleteMode) {
         toggleQuickQueueDelete(entry);
@@ -1006,7 +1135,11 @@
             } — locked. Split and remove are disabled while this is the case.</div>`
           : ""
       }
-      ${blockReason ? "" : `<div class="popup-actions"><button data-split>Split&hellip;</button></div>`}
+      ${
+        blockReason
+          ? ""
+          : `<div class="popup-actions"><button data-split>Split&hellip;</button><button data-edit-boundary>Edit boundary&hellip;</button></div>`
+      }
       ${
         blockReason
           ? ""
@@ -1042,6 +1175,14 @@
         }
         map.closePopup();
         startDrawing("split", entry.id);
+      });
+    }
+
+    const editBoundaryBtn = div.querySelector("[data-edit-boundary]");
+    if (editBoundaryBtn) {
+      editBoundaryBtn.addEventListener("click", () => {
+        map.closePopup();
+        startEditBoundary(entry.id);
       });
     }
 
@@ -1130,6 +1271,7 @@
     if (action.type === "split") undoSplit(action);
     else if (action.type === "add") undoAdd(action);
     else if (action.type === "combine") undoCombine(action);
+    else if (action.type === "edit") undoEdit(action);
     redoStack.push(action);
     updateUndoRedoButtons();
   }
@@ -1140,6 +1282,7 @@
     if (action.type === "split") redoSplit(action);
     else if (action.type === "add") redoAdd(action);
     else if (action.type === "combine") redoCombine(action);
+    else if (action.type === "edit") redoEdit(action);
     undoStack.push(action);
     updateUndoRedoButtons();
   }
@@ -1391,6 +1534,7 @@
 
   function startCombine() {
     if (drawState) cancelDrawing();
+    if (editState) cancelEditBoundary();
     map.closePopup();
     combineState = { selectedIds: new Set() };
     appEl.classList.add("combining-active");
@@ -1543,6 +1687,186 @@
     panTo(entries.get(action.newSnapshot.id));
   }
 
+  // --- Edit boundary (drag existing vertices, opt-in per area) ---
+  //
+  // Deliberately a separate, explicit mode (entered only via an area's own
+  // "Edit boundary…" popup button) rather than always-draggable vertices,
+  // so a stray click/drag on the map never silently reshapes something.
+  // Reuses the same road/path snap points as "Add new area".
+
+  function startEditBoundary(entryId) {
+    const entry = entries.get(entryId);
+    if (!entry) return;
+    if (mrBlockReason(entry)) return; // shouldn't be reachable - the popup omits this button for locked areas
+    if (drawState) cancelDrawing();
+    if (combineState) cancelCombine();
+    if (editState) cancelEditBoundary();
+    map.closePopup();
+
+    const ring = entry.feature.geometry.coordinates[0].slice(0, -1); // drop the closing duplicate point
+    map.removeLayer(entry.layer);
+    editState = { id: entryId, vertexMarkers: [], previewLayer: null, snapStatus: null };
+    ring.forEach(([lng, lat]) => {
+      const marker = L.marker([lat, lng], { draggable: true, icon: EDIT_VERTEX_ICON });
+      marker.on("drag", onEditVertexDrag);
+      marker.on("dragend", onEditVertexDrag);
+      marker.addTo(map);
+      editState.vertexMarkers.push(marker);
+    });
+    redrawEditPreview();
+    appEl.classList.add("editing-active");
+    drawStatusEl.hidden = false;
+    updateEditStatusText();
+    kickRoadSnapLookup(editState, updateEditStatusText, () => editState && editState.id === entryId);
+  }
+
+  function onEditVertexDrag(e) {
+    if (!editState) return;
+    const marker = e.target;
+    const snapPoint = findNearbySnapPoint(marker.getLatLng());
+    if (snapPoint) marker.setLatLng(L.latLng(snapPoint[1], snapPoint[0]));
+    redrawEditPreview();
+  }
+
+  function redrawEditPreview() {
+    if (!editState) return;
+    if (editState.previewLayer) {
+      map.removeLayer(editState.previewLayer);
+      editState.previewLayer = null;
+    }
+    const latlngs = editState.vertexMarkers.map((m) => m.getLatLng());
+    if (latlngs.length >= 3) {
+      editState.previewLayer = L.polygon(latlngs, {
+        color: "#1565c0",
+        weight: 2,
+        dashArray: "4 4",
+        fillOpacity: 0.1,
+        interactive: false,
+      }).addTo(map);
+    }
+  }
+
+  function updateEditStatusText() {
+    if (!editState) return;
+    let text = "Drag a point to move it, then Finish (Enter) when done.";
+    if (editState.snapStatus) text += ` ${editState.snapStatus}`;
+    drawStatusText.textContent = text;
+  }
+
+  function finishEditBoundary() {
+    if (!editState) return;
+    const entry = entries.get(editState.id);
+    if (!entry) {
+      cancelEditBoundary();
+      return;
+    }
+    const points = editState.vertexMarkers.map((m) => {
+      const ll = m.getLatLng();
+      return [ll.lng, ll.lat];
+    });
+    const ring = points.slice();
+    ring.push(ring[0]);
+    let feature;
+    try {
+      feature = turf.polygon([ring]);
+    } catch (err) {
+      alert("Could not update this boundary: " + err.message);
+      return;
+    }
+
+    // Same small-inset idea as doAddArea - any point currently sitting on a
+    // known snap point gets a little notch carved around it rather than
+    // leaving the boundary exactly on top of the intersection.
+    points.forEach((pt) => {
+      if (!findNearbySnapPoint(L.latLng(pt[1], pt[0]))) return;
+      try {
+        const notch = turf.buffer(turf.point(pt), ROAD_SNAP_INSET_KM, { units: "kilometers" });
+        const trimmed = turf.difference(turf.featureCollection([feature, notch]));
+        if (trimmed && trimmed.geometry.type === "Polygon") feature = trimmed;
+      } catch (err) {
+        console.warn("Could not carve a snap-point inset", err);
+      }
+    });
+
+    const entryId = entry.id;
+    const beforeFeature = entry.feature;
+    const wasEditQueuedBefore = mrEditQueue.has(entryId);
+    exitEditUI();
+    applyEditedGeometry(entry, feature);
+    if (entry.mrTaskId) {
+      mrEditQueue.add(entryId);
+      updateMrEditQueueButton();
+    }
+
+    undoStack.push({ type: "edit", id: entryId, beforeFeature, afterFeature: feature, wasEditQueuedBefore });
+    redoStack = [];
+    updateUndoRedoButtons();
+    updateStats();
+    renderList();
+    selectFeature(entryId);
+    panTo(entry);
+  }
+
+  function cancelEditBoundary() {
+    if (!editState) return;
+    const entry = entries.get(editState.id);
+    exitEditUI();
+    if (entry && entry.layer) entry.layer.addTo(map); // restore the untouched original layer
+  }
+
+  function exitEditUI() {
+    if (!editState) return;
+    editState.vertexMarkers.forEach((m) => map.removeLayer(m));
+    if (editState.previewLayer) map.removeLayer(editState.previewLayer);
+    appEl.classList.remove("editing-active");
+    drawStatusEl.hidden = true;
+    editState = null;
+    roadSnapMarkersLayer.clearLayers();
+  }
+
+  // Applies a (possibly brand new) feature geometry to an existing entry in
+  // place - same id, same MapRoulette linkage, just a reshaped boundary.
+  // The entry's old layer must already be off the map by the time this runs.
+  function applyEditedGeometry(entry, feature) {
+    const { area, compactness } = computeMetrics(feature);
+    entry.feature = feature;
+    entry.area = area;
+    entry.compactness = compactness;
+    entry.flagged = area < thresholds.area || compactness < thresholds.compactness;
+    attachLayer(entry);
+    if (selectedId === entry.id) updateSelectionPulse();
+  }
+
+  function undoEdit(action) {
+    const entry = entries.get(action.id);
+    if (!entry) return;
+    map.removeLayer(entry.layer);
+    applyEditedGeometry(entry, action.beforeFeature);
+    if (!action.wasEditQueuedBefore) {
+      mrEditQueue.delete(action.id);
+      updateMrEditQueueButton();
+    }
+    updateStats();
+    renderList();
+    selectFeature(action.id);
+    panTo(entry);
+  }
+
+  function redoEdit(action) {
+    const entry = entries.get(action.id);
+    if (!entry) return;
+    map.removeLayer(entry.layer);
+    applyEditedGeometry(entry, action.afterFeature);
+    if (entry.mrTaskId) {
+      mrEditQueue.add(action.id);
+      updateMrEditQueueButton();
+    }
+    updateStats();
+    renderList();
+    selectFeature(action.id);
+    panTo(entry);
+  }
+
   // --- Road/path snap points (Add new area only) ---
   //
   // Fetches every OSM way tagged highway=* (this deliberately covers roads of
@@ -1637,34 +1961,41 @@
   // Kicks off (or reuses) the lookup for the current draw session and keeps
   // drawState.snapStatus updated so updateDrawStatusText() can surface it.
   function startRoadSnapLookup() {
+    kickRoadSnapLookup(drawState, updateDrawStatusText, () => drawState && drawState.type === "add");
+  }
+
+  // Shared by both "Add new area" drawing and "Edit boundary" dragging -
+  // each keeps its own snapStatus field and status-text renderer, but the
+  // lookup/caching/messaging logic underneath is identical.
+  function kickRoadSnapLookup(stateObj, updateStatusText, isStillRelevant) {
     if (map.getZoom() < ROAD_SNAP_MIN_ZOOM) {
-      drawState.snapStatus = "Zoom in further to enable snapping to road/path intersections and bends.";
-      updateDrawStatusText();
+      stateObj.snapStatus = "Zoom in further to enable snapping to road/path intersections and bends.";
+      updateStatusText();
       return;
     }
-    drawState.snapStatus = "Looking up nearby road/path intersections and bends for snapping…";
-    updateDrawStatusText();
+    stateObj.snapStatus = "Looking up nearby road/path intersections and bends for snapping…";
+    updateStatusText();
     ensureRoadIntersectionsForCurrentView()
       .then((result) => {
-        if (!drawState || drawState.type !== "add") return; // drawing ended/changed before this resolved
+        if (!isStillRelevant()) return; // the mode ended/changed before this resolved
         if (result.ok && result.reason !== "stale") {
-          drawState.snapStatus = `Snapping enabled - ${result.count} nearby snap point${result.count === 1 ? "" : "s"} found (intersections + bends).`;
+          stateObj.snapStatus = `Snapping enabled - ${result.count} nearby snap point${result.count === 1 ? "" : "s"} found (intersections + bends).`;
           updateRoadSnapMarkers();
         } else if (result.reason === "zoom") {
-          drawState.snapStatus = "Zoom in further to enable snapping to road/path intersections and bends.";
+          stateObj.snapStatus = "Zoom in further to enable snapping to road/path intersections and bends.";
         }
-        updateDrawStatusText();
+        updateStatusText();
       })
       .catch((err) => {
-        if (!drawState || drawState.type !== "add") return;
-        drawState.snapStatus = "Road/path lookup failed - drawing without snapping (" + err.message + ").";
-        updateDrawStatusText();
+        if (!isStillRelevant()) return;
+        stateObj.snapStatus = "Road/path lookup failed - proceeding without snapping (" + err.message + ").";
+        updateStatusText();
       });
   }
 
   function updateRoadSnapMarkers() {
     roadSnapMarkersLayer.clearLayers();
-    if (!drawState || drawState.type !== "add") return;
+    if (!(drawState && drawState.type === "add") && !editState) return;
     roadSnapPoints.forEach(([lng, lat]) => {
       L.circleMarker([lat, lng], {
         radius: 3,
@@ -1698,6 +2029,7 @@
   function startDrawing(type, targetId) {
     if (drawState) cancelDrawing();
     if (combineState) cancelCombine();
+    if (editState) cancelEditBoundary();
     map.closePopup();
     drawState = { type, targetId, points: [], snapped: [], previewLayer: null, vertexMarkers: [] };
     map.doubleClickZoom.disable();
@@ -1864,13 +2196,15 @@
       const isCombineSelected = combineState && combineState.selectedIds.has(id);
       const isMrDeleteQueued = mrDeleteQueue.has(id);
       const isMrAddQueued = mrAddQueue.has(id);
+      const isMrEditQueued = mrEditQueue.has(id);
       const row = document.createElement("div");
       row.className =
         "feature-row" +
         (id === selectedId ? " selected" : "") +
         (isCombineSelected ? " combine-selected" : "") +
         (isMrDeleteQueued ? " mr-delete-queued" : "") +
-        (isMrAddQueued ? " mr-add-queued" : "");
+        (isMrAddQueued ? " mr-add-queued" : "") +
+        (isMrEditQueued ? " mr-edit-queued" : "");
       row.dataset.id = id;
       row.innerHTML = `
         <span class="status-dot ${category(e)}"></span>
@@ -1885,6 +2219,7 @@
           toggleCombineSelection(id);
           return;
         }
+        if (editState) return; // finish or cancel the boundary edit in progress first
         selectFeature(id);
         panTo(e);
         openPopup(e);
@@ -1926,4 +2261,5 @@
   // path in this page to inspect resulting geometry or map state otherwise.
   window.__blockTriageGetEntries = () => entries;
   window.__blockTriageGetZoom = () => map.getZoom();
+  window.__blockTriageGetMapCenter = () => map.getCenter();
 })();

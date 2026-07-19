@@ -228,13 +228,40 @@ remotely — combining is local-only until you act on the result — and the
 merged result is automatically queued to be added as its own new task (see
 "Per-area actions" above), or use "Add now" on it to link it right away.
 
+### Editing a boundary (drag to reshape)
+
+Click **Edit boundary…** on an area's popup to reposition its existing
+points by dragging them — this is deliberately its own opt-in mode
+(entered only through that button) rather than always-draggable points, so
+a stray click or drag on the map never silently reshapes something. While
+editing:
+- Drag any point (mouse or touch) to move it; the outline updates live as
+  you drag.
+- The same road/path snapping used by **Add new area…** is active here too
+  — drag a point near a real intersection or bend and it snaps exactly to
+  it, with the same small inset notch carved at that corner once you
+  finish.
+- `Enter`/**Finish** commits the new shape (`Esc`/**Cancel** discards it
+  entirely, leaving the area exactly as it was). This is undoable like any
+  other change.
+
+If the area was already linked to a MapRoulette task, finishing an edit
+doesn't touch MapRoulette right away — it queues the change (the area
+shows a blue dashed outline) since there's no in-place geometry update
+used here, only delete-then-recreate (the same mechanic split already uses
+for a linked area). **Process boundary-edit queue N** (in the MapRoulette
+panel) applies every queued edit, one at a time: deletes the old task and
+creates a new one with the edited shape. Editing an area that isn't linked
+yet is purely local — nothing to queue until you add it.
+
 **Locked (already-resolved) tasks.** If a loaded task's `mr_taskStatus` is
 `Fixed` or `Already_Fixed`, it's shown grey on the map and treated as
 locked — there's nothing structurally left to do with a task someone's
 already resolved. Locked areas can still be clicked to open the popup (so
-you can see its status at a glance), but can't be split, combined, or
-queued for removal — each of those actions shows an explanatory alert
-instead of doing anything.
+you can see its status at a glance), but can't be split, combined, edited,
+or queued for removal — each of those actions shows an explanatory alert
+instead of doing anything (the popup omits Edit boundary entirely for a
+locked area).
 
 **Locked (checked out right now) tasks.** This tool also watches for a
 task currently being checked out on MapRoulette (i.e. someone's locked it

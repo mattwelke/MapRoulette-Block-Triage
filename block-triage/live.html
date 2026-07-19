@@ -79,6 +79,15 @@
           </label>
           <button id="mr-queue-btn" disabled>Process delete queue (0)</button>
           <div id="mr-queue-status" class="muted"></div>
+          <hr>
+          <div class="muted">
+            Editing an area's boundary (via "Edit boundary…" on a linked
+            area's popup) queues the MapRoulette side of it too - the old
+            task gets deleted and a new one created with the edited shape,
+            once you process the queue below.
+          </div>
+          <button id="mr-edit-queue-btn" disabled>Process boundary-edit queue (0)</button>
+          <div id="mr-edit-queue-status" class="muted"></div>
         </div>
 
         <div id="thresholds">
@@ -115,6 +124,7 @@
           <div><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd> redo</div>
           <div>While drawing: click to add a point, <kbd>Enter</kbd> or double-click to finish, <kbd>Esc</kbd> to cancel</div>
           <div>While combining: click areas (map or list) to select, <kbd>Enter</kbd> to merge, <kbd>Esc</kbd> to cancel</div>
+          <div>While editing a boundary: drag a point to move it, <kbd>Enter</kbd> to finish, <kbd>Esc</kbd> to cancel</div>
         </div>
 
         <div id="feature-list-wrap">
