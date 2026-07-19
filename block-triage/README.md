@@ -526,3 +526,23 @@ caching (`no-cache` despite the name doesn't mean "don't cache" - that's
 `no-store`); it just forces a revalidation request on every load, which
 Netlify answers with a 304 if nothing changed or the new content if it
 did, so it fixes staleness without disabling caching entirely.
+
+## PWA / Add to Home Screen
+
+`manifest.json` (linked from all three pages, along with a `theme-color`
+meta tag and icons) makes this installable as a PWA - on Android, "Add to
+Home Screen" (Firefox and Chrome both offer this) creates an icon that
+launches the app in its own window with no address bar, instead of a
+regular browser tab. `display: standalone` is what triggers that; there's
+no service worker, since that's for offline support specifically, which
+isn't the goal here - everything still loads over the network exactly as
+it does in a normal tab, just without browser chrome around it.
+
+Points at `index.html` (the chooser) as the start_url, and its `scope`
+covers the whole site, so navigating from there into `local.html` or
+`live.html` stays inside the installed app rather than kicking back out to
+a regular browser tab. The icons (`icons/icon-192.png`, `icons/icon-512.png`,
+and a third copy marked `purpose: "maskable"` for Android's adaptive icon
+shapes - all three are the same design, generated once and just needed at
+different sizes/purposes) are plain PNGs checked into the repo, not
+generated at build or deploy time.
