@@ -148,24 +148,35 @@ A persistent red **LIVE: editing MapRoulette challenge &lt;id&gt;** banner
 runs across the top of the page the whole time, so there's never any
 doubt that the actions here have real, remote consequences.
 
-**Per-area actions** (in the popup, alongside Split): a button that reads
-**Add task to challenge** for an area with no linked task (freshly drawn),
-or **Remove task from challenge** for one that has one.
+**Per-area actions** (in the popup, alongside Split): for a linked area
+(one with a MapRoulette task, loaded or already added), a button reading
+**Remove task from challenge** or **Cancel pending removal**. For an
+unlinked area (freshly drawn, or a split/combine result that hasn't been
+added yet), a button reading **Queue for adding** / **Cancel pending add**,
+plus a separate **Add now** button that creates it immediately, bypassing
+the queue.
 
-Clicking **Remove task from challenge** doesn't delete anything right
-away — it queues the removal (the button flips to **Cancel pending
-removal**, and the area gets a red dashed outline so you can see what's
-queued on the map and in the list) and nothing is deleted until you
-process the queue. This is because MapRoulette's delete endpoint can be
-slow, and deleting a batch of areas one popup at a time, waiting on each
-request, isn't a great way to work — queue up everything you've decided
-on, then let it run in the background. **Process delete queue N** (in
-the MapRoulette panel) confirms once for the whole batch, then deletes
-them one at a time with a short pause between each so as not to hammer
-the API. Whatever succeeds disappears entirely from the map, the list,
-and the stats. Anything that fails stays exactly as it was (unqueued,
-still linked, nothing deleted), reported at the end so you know what to
-retry.
+Both directions work as queues rather than immediate actions, for the same
+reason: MapRoulette's task endpoints can be slow, and doing a whole batch
+one popup at a time, waiting on each request, isn't a great way to work.
+
+- **Adding**: every new, unlinked area (drawn, split, or combined) is
+  automatically queued to be added — it shows a green dashed outline on the
+  map and in the list. **Process add queue N** (in the MapRoulette panel)
+  creates them all, one at a time with a short pause between each; no
+  confirmation is needed since creating a task isn't destructive. If you
+  don't want to wait for the batch, that area's popup's **Add now** button
+  creates it right away instead (and drops it out of the queue).
+- **Removing**: clicking **Remove task from challenge** doesn't delete
+  anything right away — it queues the removal (red dashed outline) and
+  nothing is deleted until you process that queue. **Process delete queue
+  N** confirms once for the whole batch, then deletes them one at a time
+  with a short pause between each so as not to hammer the API.
+
+Either way, whatever succeeds disappears from (or appears in) the map, the
+list, and the stats immediately. Anything that fails stays exactly as it
+was (unqueued, reported at the end so you know what to retry) — a failed
+add stays unlinked, a failed removal stays linked.
 
 **Splitting a task-linked area** asks for confirmation up front (it tells
 you which task ID is involved), then deletes that MapRoulette task and

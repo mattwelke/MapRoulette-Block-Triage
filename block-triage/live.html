@@ -60,6 +60,15 @@
           <div class="muted" id="mr-lock-poll-status" title="Background check for tasks someone currently has open on MapRoulette. Runs every ~60s (jittered).">Task lock checks: not yet run.</div>
           <hr>
           <div class="muted">
+            New areas (drawn, split, or combined) are automatically queued
+            to be added as MapRoulette tasks - nothing is created until you
+            process the queue below, one area at a time. Use "Add now" on
+            an area's popup to create it immediately instead.
+          </div>
+          <button id="mr-add-queue-btn" disabled>Process add queue (0)</button>
+          <div id="mr-add-queue-status" class="muted"></div>
+          <hr>
+          <div class="muted">
             "Remove task from challenge" queues the delete instead of
             doing it right away — nothing is deleted until you process
             the queue below, one task at a time.

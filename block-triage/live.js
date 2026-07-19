@@ -59,7 +59,14 @@
   let mrChallengeId = localStorage.getItem("block-triage:mrChallengeId") || "";
   /** @type {Set<string>} entry ids queued for MapRoulette task deletion, not yet actually deleted */
   let mrDeleteQueue = new Set();
-  const MR_DELETE_PACE_MS = 400; // pause between deletes when processing the queue
+  // Entry ids queued for MapRoulette task creation, not yet actually created.
+  // Every unlinked area (freshly drawn, or a split/combine result) lands
+  // here automatically - "Add now" in the popup bypasses this queue for a
+  // single area, and this queue exists so a whole batch can be created at
+  // once instead of one popup at a time.
+  /** @type {Set<string>} */
+  let mrAddQueue = new Set();
+  const MR_QUEUE_PACE_MS = 400; // pause between requests when processing either queue
   let mrQuickQueueDeleteMode = localStorage.getItem("block-triage:mrQuickQueueDeleteMode") === "true";
 
   // Background polling for "someone has this task locked" - MapRoulette's API
@@ -205,14 +212,18 @@
   const mrLiveBannerChallenge = document.getElementById("mr-live-banner-challenge");
   const mrQueueBtn = document.getElementById("mr-queue-btn");
   const mrQueueStatusEl = document.getElementById("mr-queue-status");
+  const mrAddQueueBtn = document.getElementById("mr-add-queue-btn");
+  const mrAddQueueStatusEl = document.getElementById("mr-add-queue-status");
   const mrQuickQueueCheckbox = document.getElementById("mr-quick-queue-checkbox");
 
   mrApiKeyInput.value = mrApiKey;
   mrChallengeIdInput.value = mrChallengeId;
   updateMrBanner();
   updateMrQueueButton();
+  updateMrAddQueueButton();
   scheduleMrLockPoll();
   mrQueueBtn.addEventListener("click", processMrDeleteQueue);
+  mrAddQueueBtn.addEventListener("click", processMrAddQueue);
 
   mrApiKeyInput.addEventListener("change", () => {
     mrApiKey = mrApiKeyInput.value.trim();
@@ -421,7 +432,7 @@
         entry.layer.setStyle(styleFor(entry)); // drop the "queued" look, it's back to just linked
         updateStats();
         renderList();
-        if (done < ids.length) await sleep(MR_DELETE_PACE_MS);
+        if (done < ids.length) await sleep(MR_QUEUE_PACE_MS);
         continue;
       }
 
@@ -435,7 +446,7 @@
       }
       updateStats();
       renderList();
-      if (done < ids.length) await sleep(MR_DELETE_PACE_MS);
+      if (done < ids.length) await sleep(MR_QUEUE_PACE_MS);
     }
     const deleted = done - failed - skippedLocked;
     const parts = [`deleted ${deleted} of ${done}`];
@@ -446,6 +457,49 @@
         ? `Done — deleted ${deleted} task${deleted === 1 ? "" : "s"}.`
         : `Done — ${parts.join(", ")}; anything not deleted is still linked locally (click "Remove task from challenge" on it again to retry).`;
     updateMrQueueButton();
+  }
+
+  function updateMrAddQueueButton() {
+    mrAddQueueBtn.textContent = `Process add queue (${mrAddQueue.size})`;
+    mrAddQueueBtn.disabled = mrAddQueue.size === 0;
+  }
+
+  // Creates every still-queued, still-unlinked area as a new MapRoulette
+  // task, one at a time with the same pacing as the delete queue. Creating
+  // tasks isn't destructive (unlike deleting), so this skips the bulk
+  // confirm the delete queue asks for.
+  async function processMrAddQueue() {
+    const ids = Array.from(mrAddQueue);
+    if (ids.length === 0) return;
+
+    mrAddQueueBtn.disabled = true;
+    let done = 0;
+    let failed = 0;
+    for (const id of ids) {
+      done++;
+      mrAddQueue.delete(id);
+      const entry = entries.get(id);
+      if (!entry || entry.mrTaskId) {
+        continue; // already linked or gone by some other means in the meantime
+      }
+
+      mrAddQueueStatusEl.textContent = `Adding ${done} of ${ids.length}…`;
+      try {
+        const created = await mrCreateTask(entry.feature);
+        entry.mrTaskId = created.id;
+        entry.layer.setStyle(styleFor(entry));
+      } catch (err) {
+        failed++;
+      }
+      renderList();
+      if (done < ids.length) await sleep(MR_QUEUE_PACE_MS);
+    }
+    const added = done - failed;
+    mrAddQueueStatusEl.textContent =
+      failed === 0
+        ? `Done — added ${added} task${added === 1 ? "" : "s"}.`
+        : `Done — added ${added} of ${done}; ${failed} failed and ${failed === 1 ? "is" : "are"} still unlinked (use "Add now" on it, or queue it again, to retry).`;
+    updateMrAddQueueButton();
   }
 
   function parseMrTaskId(feature) {
@@ -809,6 +863,9 @@
     mrDeleteQueue = new Set();
     updateMrQueueButton();
     mrQueueStatusEl.textContent = "";
+    mrAddQueue = new Set();
+    updateMrAddQueueButton();
+    mrAddQueueStatusEl.textContent = "";
 
     parsed.features.forEach((feature, idx) => {
       const id = hashString(JSON.stringify(feature.geometry));
@@ -866,6 +923,9 @@
     }
     if (mrDeleteQueue.has(entry.id)) {
       return { color: "#b71c1c", weight: 4, dashArray: "2 4", fillColor: color, fillOpacity: 0.35 };
+    }
+    if (mrAddQueue.has(entry.id)) {
+      return { color: "#2e7d32", weight: 4, dashArray: "2 4", fillColor: color, fillOpacity: 0.35 };
     }
     const isSelected = entry.id === selectedId;
     return {
@@ -947,7 +1007,14 @@
           : ""
       }
       ${blockReason ? "" : `<div class="popup-actions"><button data-split>Split&hellip;</button></div>`}
-      ${blockReason ? "" : `<div class="popup-actions"><button data-mr-action></button></div><div class="mr-inline-status" data-mr-status></div>`}
+      ${
+        blockReason
+          ? ""
+          : `<div class="popup-actions">
+              <button data-mr-action></button>
+              ${entry.mrTaskId ? "" : `<button data-mr-add-now>Add now</button>`}
+            </div><div class="mr-inline-status" data-mr-status></div>`
+      }
     `;
     const splitBtn = div.querySelector("[data-split]");
     if (splitBtn) {
@@ -985,52 +1052,73 @@
     }
 
     const mrBtn = div.querySelector("[data-mr-action]");
+    const mrAddNowBtn = div.querySelector("[data-mr-add-now]");
     const mrStatusInline = div.querySelector("[data-mr-status]");
     const updateMrButton = () => {
-      if (mrDeleteQueue.has(entry.id)) {
-        mrBtn.textContent = "Cancel pending removal";
+      if (entry.mrTaskId) {
+        mrBtn.textContent = mrDeleteQueue.has(entry.id) ? "Cancel pending removal" : "Remove task from challenge";
       } else {
-        mrBtn.textContent = entry.mrTaskId ? "Remove task from challenge" : "Add task to challenge";
+        mrBtn.textContent = mrAddQueue.has(entry.id) ? "Cancel pending add" : "Queue for adding";
       }
     };
     updateMrButton();
-    mrBtn.addEventListener("click", async () => {
-      // Queueing/dequeueing is fully reversible (nothing's deleted yet), so
-      // no confirmation here - that happens once, for the whole batch, when
-      // actually processing the queue.
-      if (mrDeleteQueue.has(entry.id)) {
-        mrDeleteQueue.delete(entry.id);
-        entry.layer.setStyle(styleFor(entry));
-        mrStatusInline.textContent = "Removed from the delete queue.";
-        updateMrButton();
-        updateMrQueueButton();
-        renderList();
-        return;
-      }
+    mrBtn.addEventListener("click", () => {
+      // Queueing/dequeueing (for either queue) is fully reversible (nothing's
+      // created/deleted yet), so no confirmation here - that happens once,
+      // for the whole batch, when actually processing a queue (and not at
+      // all for adding, since creating a task isn't destructive).
       if (entry.mrTaskId) {
-        mrDeleteQueue.add(entry.id);
+        if (mrDeleteQueue.has(entry.id)) {
+          mrDeleteQueue.delete(entry.id);
+          mrStatusInline.textContent = "Removed from the delete queue.";
+        } else {
+          mrDeleteQueue.add(entry.id);
+          mrStatusInline.textContent = 'Queued for removal — use "Process delete queue" in the sidebar to actually delete it.';
+        }
         entry.layer.setStyle(styleFor(entry));
-        mrStatusInline.textContent = 'Queued for removal — use "Process delete queue" in the sidebar to actually delete it.';
         updateMrButton();
         updateMrQueueButton();
         renderList();
         return;
       }
-      mrBtn.disabled = true;
-      mrStatusInline.textContent = "Adding to MapRoulette…";
-      try {
-        const created = await mrCreateTask(entry.feature);
-        entry.mrTaskId = created.id;
-        mrStatusInline.textContent = `Added as MapRoulette task ${created.id}.`;
-      } catch (err) {
-        mrStatusInline.textContent = "Failed: " + err.message;
-      } finally {
-        if (entries.has(entry.id)) {
-          mrBtn.disabled = false;
-          updateMrButton();
-        }
+      if (mrAddQueue.has(entry.id)) {
+        mrAddQueue.delete(entry.id);
+        mrStatusInline.textContent = "Removed from the add queue.";
+      } else {
+        mrAddQueue.add(entry.id);
+        mrStatusInline.textContent = 'Queued for adding — use "Process add queue" in the sidebar to actually create it.';
       }
+      entry.layer.setStyle(styleFor(entry));
+      updateMrButton();
+      updateMrAddQueueButton();
+      renderList();
     });
+
+    if (mrAddNowBtn) {
+      mrAddNowBtn.addEventListener("click", async () => {
+        mrAddNowBtn.disabled = true;
+        mrBtn.disabled = true;
+        mrStatusInline.textContent = "Adding to MapRoulette…";
+        try {
+          const created = await mrCreateTask(entry.feature);
+          entry.mrTaskId = created.id;
+          mrAddQueue.delete(entry.id);
+          entry.layer.setStyle(styleFor(entry));
+          mrStatusInline.textContent = `Added as MapRoulette task ${created.id}.`;
+          updateMrButton();
+          updateMrAddQueueButton();
+          renderList();
+          mrAddNowBtn.remove(); // no longer relevant - this area is linked now
+        } catch (err) {
+          mrStatusInline.textContent = "Failed: " + err.message;
+        } finally {
+          if (entries.has(entry.id)) {
+            mrBtn.disabled = false;
+            mrAddNowBtn.disabled = false;
+          }
+        }
+      });
+    }
 
     const center = entry.layer.getBounds().getCenter();
     L.popup().setLatLng(center).setContent(div).openOn(map);
@@ -1145,7 +1233,15 @@
         mrActiveLockedBy: null,
       };
     });
+    // Only auto-queue the new pieces for adding if the original area had no
+    // MapRoulette task of its own - if it did, syncSplitToMapRoulette below
+    // creates their replacement tasks immediately instead, bypassing the
+    // queue entirely (an established, deliberate, confirmed-up-front flow).
+    if (!originalSnapshot.mrTaskId) {
+      newSnapshots.forEach((snap) => mrAddQueue.add(snap.id));
+    }
     newSnapshots.forEach((snap) => restoreEntryFromSnapshot(snap));
+    updateMrAddQueueButton();
 
     undoStack.push({ type: "split", original: originalSnapshot, newSnapshots });
     redoStack = [];
@@ -1189,8 +1285,12 @@
   }
 
   function undoSplit(action) {
-    action.newSnapshots.forEach((snap) => removeEntry(snap.id));
+    action.newSnapshots.forEach((snap) => {
+      removeEntry(snap.id);
+      mrAddQueue.delete(snap.id);
+    });
     restoreEntryFromSnapshot(action.original);
+    updateMrAddQueueButton();
     updateStats();
     renderList();
     selectFeature(action.original.id);
@@ -1199,7 +1299,11 @@
 
   function redoSplit(action) {
     removeEntry(action.original.id);
+    if (!action.original.mrTaskId) {
+      action.newSnapshots.forEach((snap) => mrAddQueue.add(snap.id));
+    }
     action.newSnapshots.forEach((snap) => restoreEntryFromSnapshot(snap));
+    updateMrAddQueueButton();
     updateStats();
     renderList();
     selectFeature(action.newSnapshots[0].id);
@@ -1251,7 +1355,12 @@
       mrLocked: false,
       mrActiveLockedBy: null,
     };
+    // A freshly-drawn area has no MapRoulette task yet - auto-queue it for
+    // adding rather than requiring a manual step; "Add now" in its popup
+    // still creates it right away if you don't want to wait for the batch.
+    mrAddQueue.add(snapshot.id);
     restoreEntryFromSnapshot(snapshot);
+    updateMrAddQueueButton();
 
     undoStack.push({ type: "add", snapshot });
     redoStack = [];
@@ -1263,12 +1372,16 @@
 
   function undoAdd(action) {
     removeEntry(action.snapshot.id);
+    mrAddQueue.delete(action.snapshot.id);
+    updateMrAddQueueButton();
     updateStats();
     renderList();
   }
 
   function redoAdd(action) {
+    mrAddQueue.add(action.snapshot.id);
     restoreEntryFromSnapshot(action.snapshot);
+    updateMrAddQueueButton();
     updateStats();
     renderList();
     selectFeature(action.snapshot.id);
@@ -1397,7 +1510,9 @@
       mrLocked: false,
       mrActiveLockedBy: null,
     };
+    mrAddQueue.add(newSnapshot.id);
     restoreEntryFromSnapshot(newSnapshot);
+    updateMrAddQueueButton();
 
     undoStack.push({ type: "combine", originals: originalSnapshots, newSnapshot });
     redoStack = [];
@@ -1411,7 +1526,9 @@
 
   function undoCombine(action) {
     removeEntry(action.newSnapshot.id);
+    mrAddQueue.delete(action.newSnapshot.id);
     action.originals.forEach((snap) => restoreEntryFromSnapshot(snap));
+    updateMrAddQueueButton();
     updateStats();
     renderList();
     selectFeature(action.originals[0].id);
@@ -1420,7 +1537,9 @@
 
   function redoCombine(action) {
     action.originals.forEach((snap) => removeEntry(snap.id));
+    mrAddQueue.add(action.newSnapshot.id);
     restoreEntryFromSnapshot(action.newSnapshot);
+    updateMrAddQueueButton();
     updateStats();
     renderList();
     selectFeature(action.newSnapshot.id);
@@ -1746,13 +1865,15 @@
     ids.forEach((id) => {
       const e = entries.get(id);
       const isCombineSelected = combineState && combineState.selectedIds.has(id);
-      const isMrQueued = mrDeleteQueue.has(id);
+      const isMrDeleteQueued = mrDeleteQueue.has(id);
+      const isMrAddQueued = mrAddQueue.has(id);
       const row = document.createElement("div");
       row.className =
         "feature-row" +
         (id === selectedId ? " selected" : "") +
         (isCombineSelected ? " combine-selected" : "") +
-        (isMrQueued ? " mr-delete-queued" : "");
+        (isMrDeleteQueued ? " mr-delete-queued" : "") +
+        (isMrAddQueued ? " mr-add-queued" : "");
       row.dataset.id = id;
       row.innerHTML = `
         <span class="status-dot ${category(e)}"></span>

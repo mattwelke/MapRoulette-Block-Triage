@@ -220,7 +220,8 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 
 #mr-test-btn,
 #mr-load-challenge-btn,
-#mr-queue-btn {
+#mr-queue-btn,
+#mr-add-queue-btn {
   width: 100%;
   margin-top: 0.2rem;
 }
@@ -234,7 +235,8 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 #mr-status,
 #mr-load-status,
 #mr-lock-poll-status,
-#mr-queue-status {
+#mr-queue-status,
+#mr-add-queue-status {
   margin-top: 0.4rem;
   font-size: 0.8rem;
 }
@@ -357,6 +359,12 @@ kbd {
   border-color: #b71c1c;
   box-shadow: 0 0 0 1px #b71c1c inset;
   background: #fdeaea;
+}
+
+.feature-row.mr-add-queued {
+  border-color: #2e7d32;
+  box-shadow: 0 0 0 1px #2e7d32 inset;
+  background: #eaf5ea;
 }
 
 .feature-row .status-dot {

@@ -83,7 +83,8 @@ runTest("maproulette-basic: API key persistence, load, add/remove task labels", 
   await page.waitForTimeout(200);
   await page.click(".leaflet-popup-close-button").catch(() => {});
 
-  // Draw a new area from scratch - its popup should offer "Add task to challenge".
+  // Draw a new area from scratch - it should auto-queue for adding and its
+  // popup should offer both the queue toggle and an immediate "Add now".
   await page.click("#add-area-btn");
   await page.waitForTimeout(200);
   const mapBox = await page.$eval("#map", (el) => {
@@ -116,15 +117,26 @@ runTest("maproulette-basic: API key persistence, load, add/remove task labels", 
   await page.waitForTimeout(300);
   assertEqual(
     await page.$eval("[data-mr-action]", (el) => el.textContent),
-    "Add task to challenge",
-    "a freshly-drawn, unlinked area should offer Add"
+    "Cancel pending add",
+    "a freshly-drawn, unlinked area should be auto-queued for adding"
+  );
+  assert((await page.$("[data-mr-add-now]")) !== null, "an unlinked area's popup should also offer Add now");
+  assertEqual(
+    await page.$eval("#mr-add-queue-btn", (el) => el.textContent),
+    "Process add queue (1)",
+    "the sidebar add-queue button should reflect the auto-queued area"
   );
 
-  await page.click("[data-mr-action]");
+  await page.click("[data-mr-add-now]");
   await page.waitForTimeout(300);
   assert(
     (await page.$eval("[data-mr-status]", (el) => el.textContent)).includes("Added as MapRoulette task"),
-    "Add should create a new MapRoulette task and report its id"
+    "Add now should create a new MapRoulette task and report its id"
+  );
+  assertEqual(
+    await page.$eval("#mr-add-queue-btn", (el) => el.textContent),
+    "Process add queue (0)",
+    "adding it immediately should also drop it out of the add queue"
   );
 
   assertNoPageErrors(page);
