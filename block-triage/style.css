@@ -381,6 +381,12 @@ kbd {
   background: #e8f0fb;
 }
 
+.feature-row.mr-split-queued {
+  border-color: #ef6c00;
+  box-shadow: 0 0 0 1px #ef6c00 inset;
+  background: #fff3e0;
+}
+
 .edit-vertex-icon {
   width: 14px;
   height: 14px;

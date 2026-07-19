@@ -3,6 +3,7 @@ const {
   assertNoPageErrors,
   liveUrl,
   assert,
+  assertEqual,
   runTest,
   mrChallengeSampleTasks,
   routeMrChallenge,
@@ -11,7 +12,7 @@ const {
 
 const CHALLENGE_ID = 90001;
 
-runTest("maproulette-split: local split succeeds even when the MapRoulette sync fails", async () => {
+runTest("maproulette-split: queued split applies locally even when the MapRoulette sync fails", async () => {
   const { browser, page } = await launch();
   const dialogs = [];
   page.on("dialog", async (dialog) => {
@@ -32,11 +33,6 @@ runTest("maproulette-split: local split succeeds even when the MapRoulette sync 
   await page.waitForTimeout(300);
   assert(!!(await page.$("[data-split]")), "the feature being split should be unlocked and splittable");
 
-  // syncSplitToMapRoulette deletes the original task first, then creates two
-  // new ones - fail that first delete deterministically to exercise the
-  // failure path without depending on real network conditions.
-  mrState.nextDeleteStatus = 500;
-
   await page.click("[data-split]");
   await page.waitForTimeout(300);
 
@@ -49,22 +45,39 @@ runTest("maproulette-split: local split succeeds even when the MapRoulette sync 
   await page.mouse.click(mapBox.x + mapBox.width - 20, mapBox.y + mapBox.height / 2);
   await page.waitForTimeout(150);
   await page.keyboard.press("Enter");
-  await page.waitForTimeout(1000);
+  await page.waitForTimeout(300);
+
+  // Finishing the cut only queues the split - nothing changes locally yet.
+  assert(
+    (await page.$eval("#stats", (el) => el.textContent)).includes("Total: 10"),
+    "the split should be queued, not applied, right after drawing the cut"
+  );
+  assertEqual(
+    await page.$eval("#mr-split-queue-btn", (el) => el.textContent),
+    "Process split queue (1)",
+    "the split should be queued for processing"
+  );
+
+  // processSplitQueue deletes the original task first, then creates two new
+  // ones - fail that first delete deterministically to exercise the failure
+  // path without depending on real network conditions.
+  mrState.nextDeleteStatus = 500;
+
+  await page.click("#mr-split-queue-btn");
+  await page.waitForTimeout(1500);
 
   assert(
     (await page.$eval("#stats", (el) => el.textContent)).includes("Total: 11"),
     "the local split should succeed regardless of remote sync outcome"
   );
-
-  // Give the async MapRoulette sync (delete attempt) time to run and fail.
-  await page.waitForTimeout(2000);
   assert(
     dialogs.some((d) => d.toLowerCase().includes("failed")),
     `expected an alert about the failed MapRoulette sync, got dialogs: ${JSON.stringify(dialogs)}`
   );
-  assert(
-    (await page.$eval("#stats", (el) => el.textContent)).includes("Total: 11"),
-    "the failed sync should not undo the local split"
+  assertEqual(
+    await page.$eval("#mr-split-queue-btn", (el) => el.textContent),
+    "Process split queue (0)",
+    "the split queue should be empty after processing"
   );
 
   assertNoPageErrors(page);

@@ -92,6 +92,16 @@
           </div>
           <button id="mr-edit-queue-btn" disabled>Process boundary-edit queue (0)</button>
           <div id="mr-edit-queue-status" class="muted"></div>
+          <hr>
+          <div class="muted">
+            "Split…" on an area's popup queues the split instead of doing it
+            right away - the area shows an orange dashed outline until you
+            process the queue below, which splits it locally and (if it was
+            task-linked) deletes the old MapRoulette task and creates two new
+            ones, one area at a time.
+          </div>
+          <button id="mr-split-queue-btn" disabled>Process split queue (0)</button>
+          <div id="mr-split-queue-status" class="muted"></div>
         </div>
 
         <div id="thresholds">

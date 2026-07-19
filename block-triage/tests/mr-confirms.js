@@ -12,7 +12,7 @@ const {
 
 const CHALLENGE_ID = 90001;
 
-runTest("mr-confirms: queueing needs no confirm, processing/splitting do", async () => {
+runTest("mr-confirms: queueing (including a split) needs no confirm, only processing a queue does", async () => {
   const { browser, page } = await launch();
   const dialogs = [];
   page.on("dialog", async (dialog) => {
@@ -58,10 +58,38 @@ runTest("mr-confirms: queueing needs no confirm, processing/splitting do", async
   assert(queueLabelAfterDecline.includes("(1)"), `declining the confirm should leave the item queued, got: ${queueLabelAfterDecline}`);
 
   await page.click("[data-split]");
-  await page.waitForTimeout(600); // split does a live lock recheck before the confirm - give the mocked request time
-  assertEqual(dialogs.length, 2, "clicking Split on a task-linked area should ask for a second confirm");
-  assert(dialogs[1].includes("Splitting it will delete"), `expected a split-sync confirm, got: ${dialogs[1]}`);
-  assert(await page.$eval("#draw-status", (el) => el.hidden), "declining the split confirm should not enter draw mode");
+  await page.waitForTimeout(600); // split does a live lock recheck before entering draw mode - give the mocked request time
+  assertEqual(dialogs.length, 1, "clicking Split should enter draw mode directly - no confirm until the split queue is processed");
+  assert(!(await page.$eval("#draw-status", (el) => el.hidden)), "clicking Split should enter draw mode");
+
+  const mapBox = await page.$eval("#map", (el) => {
+    const r = el.getBoundingClientRect();
+    return { x: r.x, y: r.y, width: r.width, height: r.height };
+  });
+  const midY = mapBox.y + mapBox.height / 2;
+  await page.mouse.click(mapBox.x + 5, midY);
+  await page.waitForTimeout(150);
+  await page.mouse.click(mapBox.x + mapBox.width - 5, midY);
+  await page.waitForTimeout(150);
+  await page.keyboard.press("Enter");
+  await page.waitForTimeout(300);
+
+  assertEqual(dialogs.length, 1, "finishing the cut should just queue the split - still no new confirm");
+  assertEqual(
+    await page.$eval("#mr-split-queue-btn", (el) => el.textContent),
+    "Process split queue (1)",
+    "the split should be queued for processing"
+  );
+
+  await page.click("#mr-split-queue-btn");
+  await page.waitForTimeout(200);
+  assertEqual(dialogs.length, 2, "processing the split queue should ask for exactly one confirm");
+  assert(dialogs[1].includes("split"), `expected a split-processing confirm, got: ${dialogs[1]}`);
+  const splitLabelAfterDecline = await page.$eval("#mr-split-queue-btn", (el) => el.textContent);
+  assert(
+    splitLabelAfterDecline.includes("(1)"),
+    `declining the confirm should leave the split queued, got: ${splitLabelAfterDecline}`
+  );
 
   assertNoPageErrors(page);
   await browser.close();

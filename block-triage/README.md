@@ -197,10 +197,20 @@ list, and the stats immediately. Anything that fails stays exactly as it
 was (unqueued, reported at the end so you know what to retry) — a failed
 add stays unlinked, a failed removal stays linked.
 
-**Splitting a task-linked area** asks for confirmation up front (it tells
-you which task ID is involved), then deletes that MapRoulette task and
-creates two new ones for the resulting pieces, automatically, right after
-the local split completes.
+**Splitting** works as a queue too, same idea as adding/removing/editing:
+clicking **Split…**, drawing the cut, and finishing it doesn't split the
+area right away — it validates the cut immediately (so a bad cut is
+rejected on the spot) and then queues it, showing an orange dashed outline
+on the map and in the list. **Process split queue N** (in the MapRoulette
+panel) actually performs the split, one area at a time: the local split
+happens first, then - if the area was task-linked - its MapRoulette task
+is deleted and two new ones are created for the pieces, the same mechanic
+this used before splitting was a queue.
+
+While a split is pending, that area is off-limits to everything else -
+combining, editing its boundary, quick queue-delete, and re-splitting are
+all refused (with an explanation) until the pending split is either
+processed or canceled via **Cancel pending split** in its popup.
 
 ### Drawing new areas
 

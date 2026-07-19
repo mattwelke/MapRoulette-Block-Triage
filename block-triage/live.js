@@ -42,6 +42,15 @@
     return null;
   }
 
+  // Like mrBlockReason, but also blocks other structural actions (combine,
+  // edit boundary, quick queue-delete, split again) on an area that's
+  // already queued for a split - its geometry is about to be replaced, so it
+  // shouldn't be touched by anything else in the meantime.
+  function structuralBlockReason(entry) {
+    if (splitQueue.has(entry.id)) return "queued for a pending split";
+    return mrBlockReason(entry);
+  }
+
   // Numeric Task.status codes as returned by GET /challenge/{id}/tasks,
   // mapped to the same underscore-separated strings MapRoulette itself
   // writes into a challenge's mr_taskStatus GeoJSON export.
@@ -74,6 +83,15 @@
   // edited; editing an unlinked area is just a local geometry change.
   /** @type {Set<string>} */
   let mrEditQueue = new Set();
+  // Entry ids with a queued split, mapped to the already-computed pieces
+  // (see computeSplitPieces) - the geometric split doesn't actually happen
+  // locally until this is processed, same idea as every other queue here.
+  // Queuing an entry for a split also blocks other structural actions on it
+  // (combine, edit boundary, quick queue-delete) via structuralBlockReason,
+  // so its geometry can't change out from under the already-computed pieces
+  // while it waits to be processed.
+  /** @type {Map<string, {originalSnapshot: object, newSnapshots: object[]}>} */
+  let splitQueue = new Map();
   const MR_QUEUE_PACE_MS = 400; // pause between requests when processing any of the queues
   let mrQuickQueueDeleteMode = localStorage.getItem("block-triage:mrQuickQueueDeleteMode") === "true";
 
@@ -255,6 +273,8 @@
   const mrAddQueueStatusEl = document.getElementById("mr-add-queue-status");
   const mrEditQueueBtn = document.getElementById("mr-edit-queue-btn");
   const mrEditQueueStatusEl = document.getElementById("mr-edit-queue-status");
+  const mrSplitQueueBtn = document.getElementById("mr-split-queue-btn");
+  const mrSplitQueueStatusEl = document.getElementById("mr-split-queue-status");
   const mrQuickQueueCheckbox = document.getElementById("mr-quick-queue-checkbox");
   const mrMaxConcurrentInput = document.getElementById("mr-max-concurrent-input");
 
@@ -264,10 +284,12 @@
   updateMrQueueButton();
   updateMrAddQueueButton();
   updateMrEditQueueButton();
+  updateSplitQueueButton();
   scheduleMrLockPoll();
   mrQueueBtn.addEventListener("click", processMrDeleteQueue);
   mrAddQueueBtn.addEventListener("click", processMrAddQueue);
   mrEditQueueBtn.addEventListener("click", processMrEditQueue);
+  mrSplitQueueBtn.addEventListener("click", processSplitQueue);
 
   mrApiKeyInput.addEventListener("change", () => {
     mrApiKey = mrApiKeyInput.value.trim();
@@ -434,7 +456,7 @@
   // areas for removal while triaging, without opening a popup for each one.
   // Only ever queues - actual deletion still requires "Process delete queue".
   function toggleQuickQueueDelete(entry) {
-    const blockReason = mrBlockReason(entry);
+    const blockReason = structuralBlockReason(entry);
     if (blockReason) {
       alert(`This area's MapRoulette task is ${blockReason} - it can't be queued for deletion.`);
       return;
@@ -1014,6 +1036,9 @@
     mrEditQueue = new Set();
     updateMrEditQueueButton();
     mrEditQueueStatusEl.textContent = "";
+    splitQueue = new Map();
+    updateSplitQueueButton();
+    mrSplitQueueStatusEl.textContent = "";
     if (editState) cancelEditBoundary();
 
     parsed.features.forEach((feature, idx) => {
@@ -1070,6 +1095,9 @@
     }
     if (combineState && combineState.selectedIds.has(entry.id)) {
       return { color: "#9c27b0", weight: 4, dashArray: "6 3", fillColor: color, fillOpacity: 0.35 };
+    }
+    if (splitQueue.has(entry.id)) {
+      return { color: "#ef6c00", weight: 4, dashArray: "2 4", fillColor: color, fillOpacity: 0.35 };
     }
     if (mrDeleteQueue.has(entry.id)) {
       return { color: "#b71c1c", weight: 4, dashArray: "2 4", fillColor: color, fillOpacity: 0.35 };
@@ -1150,14 +1178,15 @@
   }
 
   function openPopup(entry) {
-    const blockReason = mrBlockReason(entry);
+    const lockReason = mrBlockReason(entry);
+    const splitPending = splitQueue.has(entry.id);
     const div = document.createElement("div");
     div.innerHTML = `
       <div><strong>Feature #${entry.idx}</strong></div>
       <div>Area: ${entry.area.toFixed(1)} m&sup2;</div>
       <div>Compactness: ${entry.compactness.toFixed(3)}</div>
       ${
-        blockReason
+        lockReason
           ? `<div class="mr-locked-note">&#128274; ${
               entry.mrLocked
                 ? `MapRoulette status: <strong>${formatMrTaskStatus(entry.mrTaskStatus)}</strong>`
@@ -1165,13 +1194,16 @@
             } — locked. Split and remove are disabled while this is the case.</div>`
           : ""
       }
+      ${splitPending ? `<div class="mr-locked-note">Queued for a pending split.</div>` : ""}
       ${
-        blockReason
+        lockReason
           ? ""
+          : splitPending
+          ? `<div class="popup-actions"><button data-cancel-split>Cancel pending split</button></div>`
           : `<div class="popup-actions"><button data-split>Split&hellip;</button><button data-edit-boundary>Edit boundary&hellip;</button></div>`
       }
       ${
-        blockReason
+        lockReason || splitPending
           ? ""
           : `<div class="popup-actions">
               <button data-mr-action></button>
@@ -1198,13 +1230,20 @@
             alert(`This area's MapRoulette task is ${freshBlockReason} - it can't be split.`);
             return;
           }
-          const ok = confirm(
-            `This area is linked to MapRoulette task ${entry.mrTaskId}. Splitting it will delete that task and create two new ones on MapRoulette once you finish drawing the cut. Continue?`
-          );
-          if (!ok) return;
         }
         map.closePopup();
         startDrawing("split", entry.id);
+      });
+    }
+
+    const cancelSplitBtn = div.querySelector("[data-cancel-split]");
+    if (cancelSplitBtn) {
+      cancelSplitBtn.addEventListener("click", () => {
+        splitQueue.delete(entry.id);
+        entry.layer.setStyle(styleFor(entry));
+        updateSplitQueueButton();
+        renderList();
+        map.closePopup();
       });
     }
 
@@ -1216,7 +1255,7 @@
       });
     }
 
-    if (blockReason) {
+    if (lockReason || splitPending) {
       const center = entry.layer.getBounds().getCenter();
       L.popup().setLatLng(center).setContent(div).openOn(map);
       return;
@@ -1358,15 +1397,12 @@
 
   // --- Split ---
 
-  function doSplit(targetId, points) {
-    const entry = entries.get(targetId);
-    if (!entry) return;
-    const blockReason = mrBlockReason(entry);
-    if (blockReason) {
-      alert(`This area's MapRoulette task is ${blockReason} - it can't be split.`);
-      return;
-    }
-
+  // Pure geometry: computes the two (or more) pieces a cut line would
+  // produce, without touching entries/undoStack/MapRoulette. Used both when
+  // queuing a split (so a bad cut is rejected immediately, with the map
+  // still showing the original area) and, unchanged, when the queue is
+  // later processed.
+  function computeSplitPieces(entry, points) {
     let diffResult;
     try {
       const cutLine = turf.lineString(points);
@@ -1374,23 +1410,21 @@
       diffResult = turf.difference(turf.featureCollection([entry.feature, knife]));
     } catch (err) {
       alert("Could not compute the split: " + err.message);
-      return;
+      return null;
     }
     if (!diffResult) {
       alert("That cut line doesn't appear to cross this area.");
-      return;
+      return null;
     }
     const parts = turf.flatten(diffResult).features.filter((f) => f.geometry && f.geometry.type === "Polygon");
     if (parts.length < 2) {
       alert(
         "That cut didn't fully divide the area into two separate pieces. Try drawing the line all the way across it, past both edges."
       );
-      return;
+      return null;
     }
 
     const originalSnapshot = snapshotEntry(entry);
-    removeEntry(targetId);
-
     const newSnapshots = parts.map((part, i) => {
       const { area, compactness } = computeMetrics(part);
       return {
@@ -1405,10 +1439,40 @@
         mrActiveLockedBy: null,
       };
     });
+    return { originalSnapshot, newSnapshots };
+  }
+
+  // Validates the cut and, if it works, queues the split rather than
+  // applying it right away - same idea as every other MapRoulette queue
+  // here. Nothing changes locally (or remotely) until "Process split queue"
+  // runs; the area just shows a dashed "pending split" outline meanwhile.
+  function queueSplit(targetId, points) {
+    const entry = entries.get(targetId);
+    if (!entry) return;
+    const blockReason = structuralBlockReason(entry);
+    if (blockReason) {
+      alert(`This area's MapRoulette task is ${blockReason} - it can't be split.`);
+      return;
+    }
+    const pieces = computeSplitPieces(entry, points);
+    if (!pieces) return;
+
+    splitQueue.set(targetId, pieces);
+    entry.layer.setStyle(styleFor(entry));
+    updateSplitQueueButton();
+    renderList();
+  }
+
+  // Actually performs the local split for one already-queued, already-
+  // validated entry - the same effect doSplit used to have immediately.
+  function applySplit(targetId, pieces) {
+    const { originalSnapshot, newSnapshots } = pieces;
+    removeEntry(targetId);
     // Only auto-queue the new pieces for adding if the original area had no
-    // MapRoulette task of its own - if it did, syncSplitToMapRoulette below
-    // creates their replacement tasks immediately instead, bypassing the
-    // queue entirely (an established, deliberate, confirmed-up-front flow).
+    // MapRoulette task of its own - if it did, the split-queue processing
+    // loop creates their replacement tasks directly instead, bypassing the
+    // add queue entirely (an established, deliberate flow from before this
+    // was a queue itself).
     if (!originalSnapshot.mrTaskId) {
       newSnapshots.forEach((snap) => mrAddQueue.add(snap.id));
     }
@@ -1418,18 +1482,70 @@
     undoStack.push({ type: "split", original: originalSnapshot, newSnapshots });
     redoStack = [];
     updateUndoRedoButtons();
-    updateStats();
-    renderList();
+  }
 
-    selectFeature(newSnapshots[0].id);
-    panTo(entries.get(newSnapshots[0].id));
+  function updateSplitQueueButton() {
+    mrSplitQueueBtn.textContent = `Process split queue (${splitQueue.size})`;
+    mrSplitQueueBtn.disabled = splitQueue.size === 0;
+  }
 
-    // The local split is done; MapRoulette sync (if this area was a task) is
-    // a separate, non-blocking follow-up - failures here don't undo the
-    // local split (undo/redo never touch MapRoulette either, see the README).
-    if (originalSnapshot.mrTaskId) {
-      syncSplitToMapRoulette(originalSnapshot, newSnapshots);
+  // Applies every queued split, one at a time with the same pacing as the
+  // other queues: the local split happens immediately for each, and (if the
+  // original area was task-linked) its MapRoulette sync - delete the old
+  // task, create new ones for the pieces - runs right after, same mechanic
+  // splitting used before this was a queue.
+  async function processSplitQueue() {
+    const ids = Array.from(splitQueue.keys());
+    if (ids.length === 0) return;
+    const ok = confirm(
+      `This will split ${ids.length} area${ids.length === 1 ? "" : "s"} now, deleting and recreating any linked MapRoulette task one at a time. Continue?`
+    );
+    if (!ok) return;
+
+    mrSplitQueueBtn.disabled = true;
+    let done = 0;
+    let skippedLocked = 0;
+    for (const id of ids) {
+      done++;
+      const pieces = splitQueue.get(id);
+      splitQueue.delete(id);
+      const entry = entries.get(id);
+      if (!entry) continue; // gone by some other means in the meantime
+
+      if (entry.mrTaskId) {
+        // Just-in-time recheck, same reasoning as the other queues - the
+        // split may have sat around a while.
+        try {
+          await refreshMrLockState();
+        } catch (err) {
+          // ignore - fall through with whatever lock state we already had
+        }
+        const blockReason = mrBlockReason(entry);
+        if (blockReason) {
+          skippedLocked++;
+          mrSplitQueueStatusEl.textContent = `Skipped task ${entry.mrTaskId} (${done} of ${ids.length}): ${blockReason}.`;
+          entry.layer.setStyle(styleFor(entry)); // drop the "pending split" look
+          renderList();
+          if (done < ids.length) await sleep(MR_QUEUE_PACE_MS);
+          continue;
+        }
+      }
+
+      mrSplitQueueStatusEl.textContent = `Splitting ${done} of ${ids.length}${entry.mrTaskId ? ` (task ${entry.mrTaskId})` : ""}…`;
+      applySplit(id, pieces);
+      updateStats();
+      renderList();
+      if (pieces.originalSnapshot.mrTaskId) {
+        await syncSplitToMapRoulette(pieces.originalSnapshot, pieces.newSnapshots);
+      }
+      if (done < ids.length) await sleep(MR_QUEUE_PACE_MS);
     }
+    const split = done - skippedLocked;
+    mrSplitQueueStatusEl.textContent =
+      skippedLocked === 0
+        ? `Done — split ${split} area${split === 1 ? "" : "s"}.`
+        : `Done — split ${split} of ${done}, ${skippedLocked} skipped (now locked).`;
+    updateSplitQueueButton();
   }
 
   async function syncSplitToMapRoulette(originalSnapshot, newSnapshots) {
@@ -1564,7 +1680,7 @@
   function toggleCombineSelection(id) {
     if (!combineState) return;
     const entry = entries.get(id);
-    const blockReason = entry && !combineState.selectedIds.has(id) ? mrBlockReason(entry) : null;
+    const blockReason = entry && !combineState.selectedIds.has(id) ? structuralBlockReason(entry) : null;
     if (blockReason) {
       alert(`This area's MapRoulette task is ${blockReason} - it can't be combined.`);
       return;
@@ -1941,7 +2057,7 @@
     }
     const { type, targetId, points } = drawState;
     cancelDrawing();
-    if (type === "split") doSplit(targetId, points);
+    if (type === "split") queueSplit(targetId, points);
     else doAddArea(points);
   }
 
@@ -2013,6 +2129,7 @@
       const isMrDeleteQueued = mrDeleteQueue.has(id);
       const isMrAddQueued = mrAddQueue.has(id);
       const isMrEditQueued = mrEditQueue.has(id);
+      const isSplitQueued = splitQueue.has(id);
       const row = document.createElement("div");
       row.className =
         "feature-row" +
@@ -2020,7 +2137,8 @@
         (isCombineSelected ? " combine-selected" : "") +
         (isMrDeleteQueued ? " mr-delete-queued" : "") +
         (isMrAddQueued ? " mr-add-queued" : "") +
-        (isMrEditQueued ? " mr-edit-queued" : "");
+        (isMrEditQueued ? " mr-edit-queued" : "") +
+        (isSplitQueued ? " mr-split-queued" : "");
       row.dataset.id = id;
       row.innerHTML = `
         <span class="status-dot ${category(e)}"></span>
