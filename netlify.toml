@@ -8,3 +8,15 @@
   # devDependency (build.js itself has no dependencies) - skip Playwright's
   # postinstall browser download so Netlify's `npm install` stays fast.
   PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD = "1"
+
+[[headers]]
+  # File names here never change between deploys (no content hashing), so
+  # without this, a browser (or an intermediate cache) holding onto a
+  # previous deploy's live.js/local.js/style.css/*.html has no reason to
+  # ever ask for a fresh copy. no-cache (despite the name) still allows
+  # caching - it just forces a revalidation request on every load, which
+  # Netlify answers with a 304 if nothing changed or the new content if it
+  # did, so this doesn't defeat caching, just its staleness.
+  for = "/*"
+  [headers.values]
+    Cache-Control = "no-cache, must-revalidate"

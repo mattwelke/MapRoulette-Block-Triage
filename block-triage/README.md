@@ -516,3 +516,13 @@ Netlify's build environment also gets `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1`
 (set in `netlify.toml`) so its automatic `npm install` step doesn't waste
 time downloading Playwright's browser binaries — they're only needed for
 running the test suite locally, never for building or serving the site.
+
+**Cache-busting.** File names here never change between deploys (no
+content hashing), so without any cache instructions, a browser (or an
+intermediate cache) holding onto a previous deploy's `live.js`/`local.js`
+has no reason to ever ask for a fresh copy - `netlify.toml` sends every
+file `Cache-Control: no-cache, must-revalidate`. This still allows
+caching (`no-cache` despite the name doesn't mean "don't cache" - that's
+`no-store`); it just forces a revalidation request on every load, which
+Netlify answers with a 304 if nothing changed or the new content if it
+did, so it fixes staleness without disabling caching entirely.
