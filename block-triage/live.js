@@ -1402,7 +1402,7 @@
   function updateCombineStatusText() {
     if (!combineState) return;
     const n = combineState.selectedIds.size;
-    drawStatusText.textContent = `Click 2 or more areas to merge (${n} selected so far). Areas that don't touch will be bridged, not rejected.`;
+    drawStatusText.textContent = `Click 2 or more adjacent areas to merge (${n} selected so far).`;
   }
 
   function toggleCombineSelection(id) {
@@ -1455,42 +1455,39 @@
       return;
     }
 
-    // First try an adjacency-preserving union - handles the common case of
-    // areas that already touch or overlap (or are separated only by a
-    // split's ~1m knife gap - see doSplit) without changing their shape at
-    // all. Buffer out slightly, union, then buffer back in by the same
-    // amount ("morphological closing") so that gap doesn't produce a
-    // MultiPolygon.
+    // Splitting deliberately leaves a ~1m gap between the pieces it creates
+    // (see doSplit), so a plain union of two just-split areas would see them
+    // as non-touching and produce a MultiPolygon instead of merging them.
+    // Close gaps up to that size first: buffer each area out slightly,
+    // union, then buffer the result back in by the same amount
+    // ("morphological closing"). Areas that are genuinely far apart still
+    // won't bridge and correctly fail the parts.length check below - with
+    // road/path snapping available for drawing new areas, shapes that
+    // should end up joined can just share an exact boundary point to begin
+    // with, so there's no need to bridge a real gap here instead of
+    // rejecting it.
     const CLOSE_DISTANCE_KM = 0.001; // 1m — just past the split knife's ~0.5m radius
-    let combined = null;
+    let unionResult;
     try {
       const closed = targetEntries.map((e) => turf.buffer(e.feature, CLOSE_DISTANCE_KM, { units: "kilometers" }));
-      let unionResult = turf.union(turf.featureCollection(closed));
+      unionResult = turf.union(turf.featureCollection(closed));
       if (unionResult) unionResult = turf.buffer(unionResult, -CLOSE_DISTANCE_KM, { units: "kilometers" });
-      const parts = unionResult ? turf.flatten(unionResult).features.filter((f) => f.geometry && f.geometry.type === "Polygon") : [];
-      if (parts.length === 1) combined = parts[0];
     } catch (err) {
       alert("Could not combine these areas: " + err.message);
       return;
     }
-
-    // Areas that are genuinely far apart won't touch even after closing -
-    // bridge the gap instead of rejecting: the combined area becomes the
-    // convex hull spanning all of them, so the empty space between them
-    // becomes part of the new single area too.
-    if (!combined) {
-      try {
-        combined = turf.convex(turf.featureCollection(targetEntries.map((e) => e.feature)));
-      } catch (err) {
-        alert("Could not combine these areas: " + err.message);
-        return;
-      }
-    }
-    if (!combined) {
+    if (!unionResult) {
       alert("Could not combine these areas.");
       return;
     }
-
+    const parts = turf.flatten(unionResult).features.filter((f) => f.geometry && f.geometry.type === "Polygon");
+    if (parts.length !== 1) {
+      alert(
+        "These areas don't touch or overlap, so combining them would create a MultiPolygon, which isn't supported here. Pick areas that share a boundary."
+      );
+      return;
+    }
+    const combined = parts[0];
     const { area, compactness } = computeMetrics(combined);
 
     const originalSnapshots = targetEntries.map(snapshotEntry);

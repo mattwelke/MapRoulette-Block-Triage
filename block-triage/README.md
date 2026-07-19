@@ -96,10 +96,8 @@ switch modes mid-session, just navigate back to `index.html`.
     or **Finish** to combine (`Esc`/**Cancel** to back out). They need to
     actually share a boundary; combining two that don't touch would
     produce a `MultiPolygon`, which isn't supported, so it's rejected
-    with an explanation instead. (Bridging distant areas together is only
-    supported in [live MapRoulette editing](#combining-areas-and-bridging-a-gap) —
-    local triage keeps this exact-shape-preserving behavior.) The combined
-    area comes out **unreviewed**, and this is undoable too.
+    with an explanation instead. The combined area comes out
+    **unreviewed**, and this is undoable too.
 
 While drawing or combining, clicks are captured for placing points or
 selecting areas rather than for the usual select/quick-remove behavior —
@@ -213,23 +211,22 @@ pieces — see [Notes / limitations](#notes--limitations)) carved out of the
 polygon right at that point, so the drawn area's boundary sits just next to
 the intersection rather than exactly on top of it.
 
-### Combining areas (and bridging a gap)
+### Combining areas
 
-Click **Combine areas…**, then click 2+ areas (map or list) to merge them,
-`Enter`/**Finish** to commit (`Esc`/**Cancel** to back out). Unlike local
-file triage, combining here doesn't require the areas to already touch:
-- If they touch (or are only separated by a hairline gap, e.g. two pieces
-  from an earlier split), the merge preserves their exact combined shape,
-  same as local triage.
-- If they're genuinely far apart, the result bridges the gap instead of
-  being rejected: the combined area becomes the convex hull spanning all
-  of them, so the empty space between them becomes part of the new single
-  area too.
+Click **Combine areas…**, then click 2+ adjacent areas (map or list) to
+merge them, `Enter`/**Finish** to commit (`Esc`/**Cancel** to back out) —
+same behavior as local file triage: they need to actually touch (or be
+separated only by a hairline gap, e.g. two pieces from an earlier split),
+or it's rejected with an explanation rather than producing a
+`MultiPolygon`. If you want two areas to end up joined, draw them sharing
+an exact boundary point in the first place — road/path snapping (above)
+makes that reliable — rather than relying on combine to bridge a gap
+between them.
 
 The constituent areas' MapRoulette tasks (if any) are left untouched
 remotely — combining is local-only until you act on the result — and the
-merged result starts unlinked; use its own "Add task to challenge" button
-if you want to link it to a fresh task.
+merged result is automatically queued to be added as its own new task (see
+"Per-area actions" above), or use "Add now" on it to link it right away.
 
 **Locked (already-resolved) tasks.** If a loaded task's `mr_taskStatus` is
 `Fixed` or `Already_Fixed`, it's shown grey on the map and treated as
@@ -352,11 +349,9 @@ close to 0 for a long thin shape, regardless of absolute size.
   index, so you can still tell at a glance where they came from.
 - Combining closes gaps up to ~1m before unioning (to reverse the exact
   gap splitting leaves behind), then shrinks back — so it reliably
-  reverses a split. In `live.html`, if that still doesn't produce a
-  single polygon (i.e. the areas are genuinely far apart, not just
-  split-adjacent), it falls back to a convex hull spanning all of them
-  instead of rejecting the combine; `local.html` keeps the strict,
-  shape-preserving behavior only.
+  reverses a split, but rejects areas that are genuinely far apart rather
+  than bridging the gap between them. Same behavior in both `local.html`
+  and `live.html`.
 
 ## Testing
 
