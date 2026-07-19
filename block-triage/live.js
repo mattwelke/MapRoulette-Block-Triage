@@ -70,6 +70,20 @@
   const MR_LOCK_POLL_JITTER_MS = 5000; // vary +/- up to 5s
   let mrLockPollTimer = null;
 
+  // Road/path-intersection snapping while drawing a new area (see the
+  // "Road/path intersection snapping" section below). Road network geometry
+  // comes from OSM via the public Overpass API - a way of any highway=* kind
+  // (regular roads, multiuse paths, cycle tracks, etc) counts, per the
+  // feature request. A fixed meter radius (not pixels) keeps snap behavior
+  // consistent regardless of zoom level.
+  const OVERPASS_URL = "https://overpass-api.de/api/interpreter";
+  const ROAD_SNAP_MIN_ZOOM = 15; // below this, a viewport-sized bbox query would be too large/slow
+  const ROAD_SNAP_RADIUS_METERS = 15;
+  // ~0.5m - matches the split knife's buffer radius (see doSplit): the small
+  // notch carved out of a drawn area's corner where it snaps to a real
+  // intersection, so the boundary doesn't sit exactly on top of the point.
+  const ROAD_SNAP_INSET_KM = 0.0005;
+
   /** @type {Map<string, {id:string, idx:number, feature:object, layer:L.Layer, area:number, compactness:number}>} */
   let entries = new Map();
   let orderedIds = []; // insertion order == original feature order
@@ -79,10 +93,14 @@
   let addedAreaCounter = 0;
   let undoStack = [];
   let redoStack = [];
-  /** @type {null | {type: "split"|"add", targetId?: string, points: [number,number][], previewLayer: L.Layer|null, vertexMarkers: L.Layer[]}} */
+  /** @type {null | {type: "split"|"add", targetId?: string, points: [number,number][], snapped?: boolean[], snapStatus?: string, previewLayer: L.Layer|null, vertexMarkers: L.Layer[]}} */
   let drawState = null;
   /** @type {null | {selectedIds: Set<string>}} */
   let combineState = null;
+  /** @type {[number,number][]} known road/path intersection points ([lng,lat]) for the most recently fetched area */
+  let roadIntersections = [];
+  let roadIntersectionsBounds = null; // L.LatLngBounds already covered by roadIntersections
+  let roadIntersectionsFetchToken = 0; // guards a stale fetch resolving after a newer one superseded it
 
   const map = L.map("map", { preferCanvas: true }).setView([43.45, -79.68], 12);
   const osm = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
@@ -99,6 +117,11 @@
   // MapRoulette challenge.
   const referenceLayerGroup = L.layerGroup();
   L.control.layers({ "OpenStreetMap": osm, "Aerial (Esri)": esriImagery }, { "Reference layer": referenceLayerGroup }).addTo(map);
+
+  // Small dots marking known road/path intersections while drawing a new
+  // area (see the road-snapping section below) - populated once a fetch
+  // resolves, cleared as soon as drawing ends.
+  const roadSnapMarkersLayer = L.layerGroup().addTo(map);
 
   // The working areas use the canvas renderer (set via preferCanvas above, for
   // performance with thousands of features), but canvas can't do SVG pattern
@@ -1185,7 +1208,7 @@
 
   // --- Add new area ---
 
-  function doAddArea(points) {
+  function doAddArea(points, snapped) {
     const ring = points.slice();
     const first = ring[0];
     const last = ring[ring.length - 1];
@@ -1198,6 +1221,24 @@
       alert("Could not create an area from those points: " + err.message);
       return;
     }
+
+    // Corners snapped to a real road/path intersection get a small notch
+    // carved out around the exact point (same idea as the split knife's
+    // buffer - see doSplit) so the boundary doesn't sit precisely on top of
+    // the intersection itself.
+    if (Array.isArray(snapped)) {
+      snapped.forEach((wasSnapped, i) => {
+        if (!wasSnapped) return;
+        try {
+          const notch = turf.buffer(turf.point(points[i]), ROAD_SNAP_INSET_KM, { units: "kilometers" });
+          const trimmed = turf.difference(turf.featureCollection([feature, notch]));
+          if (trimmed && trimmed.geometry.type === "Polygon") feature = trimmed;
+        } catch (err) {
+          console.warn("Could not carve a snap-point inset", err);
+        }
+      });
+    }
+
     const { area, compactness } = computeMetrics(feature);
     const snapshot = {
       id: hashString(JSON.stringify(feature.geometry) + ":" + newFeatureCounter++),
@@ -1386,13 +1427,150 @@
     panTo(entries.get(action.newSnapshot.id));
   }
 
+  // --- Road/path intersection snapping (Add new area only) ---
+  //
+  // Fetches every OSM way tagged highway=* (this deliberately covers roads of
+  // any kind, plus paths/cycle tracks - anything using the highway=* schema)
+  // within the current map view from the public Overpass API, finds where
+  // any two of them cross, and offers those crossing points as click-snap
+  // targets while drawing a new area's outline - so corners land exactly on
+  // a real intersection instead of wherever the mouse happened to be.
+
+  function paddedBounds(bounds, factor) {
+    const ne = bounds.getNorthEast();
+    const sw = bounds.getSouthWest();
+    const latPad = (ne.lat - sw.lat) * factor;
+    const lngPad = (ne.lng - sw.lng) * factor;
+    return L.latLngBounds([sw.lat - latPad, sw.lng - lngPad], [ne.lat + latPad, ne.lng + lngPad]);
+  }
+
+  // Multiple way-pairs can report essentially the same real-world
+  // intersection (e.g. where 3+ roads meet) - collapse anything within
+  // ~0.5m of a point already kept.
+  function dedupeNearbyPoints(points) {
+    const kept = [];
+    points.forEach((p) => {
+      const isDupe = kept.some((q) => turf.distance(turf.point(p), turf.point(q), { units: "kilometers" }) < 0.0005);
+      if (!isDupe) kept.push(p);
+    });
+    return kept;
+  }
+
+  function computeWayIntersections(ways) {
+    const points = [];
+    for (let i = 0; i < ways.length; i++) {
+      for (let j = i + 1; j < ways.length; j++) {
+        let hit;
+        try {
+          hit = turf.lineIntersect(ways[i], ways[j]);
+        } catch (err) {
+          continue; // malformed geometry from the API - skip that pair
+        }
+        hit.features.forEach((f) => points.push(f.geometry.coordinates));
+      }
+    }
+    return dedupeNearbyPoints(points);
+  }
+
+  // Fetches (or reuses a cached fetch of) the road/path network for the
+  // current view, refreshing roadIntersections. Returns a small status
+  // object rather than throwing, since a failed/skipped lookup should just
+  // mean "no snapping this time", not interrupt drawing.
+  async function ensureRoadIntersectionsForCurrentView() {
+    if (map.getZoom() < ROAD_SNAP_MIN_ZOOM) {
+      roadIntersections = [];
+      roadIntersectionsBounds = null;
+      return { ok: false, reason: "zoom" };
+    }
+    const viewBounds = map.getBounds();
+    if (roadIntersectionsBounds && roadIntersectionsBounds.contains(viewBounds)) {
+      return { ok: true, reason: "cached", count: roadIntersections.length };
+    }
+    const fetchBounds = paddedBounds(viewBounds, 0.5); // fetch a bit wider than the view so minor pans reuse the cache
+    const token = ++roadIntersectionsFetchToken;
+    const query =
+      `[out:json][timeout:25];` +
+      `way["highway"](${fetchBounds.getSouth()},${fetchBounds.getWest()},${fetchBounds.getNorth()},${fetchBounds.getEast()});` +
+      `out geom;`;
+    const res = await fetch(`${OVERPASS_URL}?data=${encodeURIComponent(query)}`);
+    if (!res.ok) throw new Error(`Overpass API ${res.status}`);
+    const data = await res.json();
+    if (token !== roadIntersectionsFetchToken) return { ok: false, reason: "stale" }; // superseded by a newer fetch
+
+    const ways = (data.elements || [])
+      .filter((el) => el.type === "way" && Array.isArray(el.geometry) && el.geometry.length >= 2)
+      .map((el) => turf.lineString(el.geometry.map((pt) => [pt.lon, pt.lat])));
+    roadIntersections = computeWayIntersections(ways);
+    roadIntersectionsBounds = fetchBounds;
+    return { ok: true, reason: "fetched", count: roadIntersections.length };
+  }
+
+  // Kicks off (or reuses) the lookup for the current draw session and keeps
+  // drawState.snapStatus updated so updateDrawStatusText() can surface it.
+  function startRoadSnapLookup() {
+    if (map.getZoom() < ROAD_SNAP_MIN_ZOOM) {
+      drawState.snapStatus = "Zoom in further to enable snapping to road/path intersections.";
+      updateDrawStatusText();
+      return;
+    }
+    drawState.snapStatus = "Looking up nearby road/path intersections for snapping…";
+    updateDrawStatusText();
+    ensureRoadIntersectionsForCurrentView()
+      .then((result) => {
+        if (!drawState || drawState.type !== "add") return; // drawing ended/changed before this resolved
+        if (result.ok && result.reason !== "stale") {
+          drawState.snapStatus = `Snapping enabled - ${result.count} nearby intersection${result.count === 1 ? "" : "s"} found.`;
+          updateRoadSnapMarkers();
+        } else if (result.reason === "zoom") {
+          drawState.snapStatus = "Zoom in further to enable snapping to road/path intersections.";
+        }
+        updateDrawStatusText();
+      })
+      .catch((err) => {
+        if (!drawState || drawState.type !== "add") return;
+        drawState.snapStatus = "Road/path lookup failed - drawing without snapping (" + err.message + ").";
+        updateDrawStatusText();
+      });
+  }
+
+  function updateRoadSnapMarkers() {
+    roadSnapMarkersLayer.clearLayers();
+    if (!drawState || drawState.type !== "add") return;
+    roadIntersections.forEach(([lng, lat]) => {
+      L.circleMarker([lat, lng], {
+        radius: 3,
+        color: "#00838f",
+        weight: 1,
+        fillColor: "#00838f",
+        fillOpacity: 0.6,
+        interactive: false,
+      }).addTo(roadSnapMarkersLayer);
+    });
+  }
+
+  // Returns the nearest known intersection point ([lng,lat]) within
+  // ROAD_SNAP_RADIUS_METERS of latlng, or null if none is close enough.
+  function findNearbySnapPoint(latlng) {
+    if (!roadIntersections.length) return null;
+    let best = null;
+    let bestDist = Infinity;
+    roadIntersections.forEach((p) => {
+      const d = map.distance(latlng, L.latLng(p[1], p[0]));
+      if (d < bestDist) {
+        bestDist = d;
+        best = p;
+      }
+    });
+    return best && bestDist <= ROAD_SNAP_RADIUS_METERS ? best : null;
+  }
+
   // --- Drawing controller (shared by split-line and add-new-area) ---
 
   function startDrawing(type, targetId) {
     if (drawState) cancelDrawing();
     if (combineState) cancelCombine();
     map.closePopup();
-    drawState = { type, targetId, points: [], previewLayer: null, vertexMarkers: [] };
+    drawState = { type, targetId, points: [], snapped: [], previewLayer: null, vertexMarkers: [] };
     map.doubleClickZoom.disable();
     appEl.classList.add("drawing-active");
     drawStatusEl.hidden = false;
@@ -1400,19 +1578,34 @@
     map.on("click", onDrawMapClick);
     map.on("mousemove", onDrawMouseMove);
     map.on("dblclick", finishDrawing);
-    if (type === "add") addAreaBtn.textContent = "Cancel adding…";
+    if (type === "add") {
+      addAreaBtn.textContent = "Cancel adding…";
+      startRoadSnapLookup();
+    }
   }
 
   function updateDrawStatusText() {
     if (!drawState) return;
     const need = drawState.type === "split" ? 2 : 3;
     const verb = drawState.type === "split" ? "Draw a line across the area to split it" : "Draw the new area's outline";
-    drawStatusText.textContent = `${verb} — click to add points (${drawState.points.length} so far, need at least ${need}).`;
+    let text = `${verb} — click to add points (${drawState.points.length} so far, need at least ${need}).`;
+    if (drawState.type === "add" && drawState.snapStatus) text += ` ${drawState.snapStatus}`;
+    drawStatusText.textContent = text;
   }
 
   function onDrawMapClick(e) {
     if (!drawState) return;
-    drawState.points.push([e.latlng.lng, e.latlng.lat]);
+    let latlng = e.latlng;
+    let snapped = false;
+    if (drawState.type === "add") {
+      const snapPoint = findNearbySnapPoint(latlng);
+      if (snapPoint) {
+        latlng = L.latLng(snapPoint[1], snapPoint[0]);
+        snapped = true;
+      }
+    }
+    drawState.points.push([latlng.lng, latlng.lat]);
+    drawState.snapped.push(snapped);
     redrawDrawPreview();
     updateDrawStatusText();
   }
@@ -1448,16 +1641,17 @@
       }).addTo(map);
     }
     drawState.vertexMarkers.forEach((m) => map.removeLayer(m));
-    drawState.vertexMarkers = drawState.points.map(([lng, lat]) =>
-      L.circleMarker([lat, lng], {
+    drawState.vertexMarkers = drawState.points.map(([lng, lat], i) => {
+      const isSnapped = drawState.snapped && drawState.snapped[i];
+      return L.circleMarker([lat, lng], {
         radius: 4,
-        color: "#333",
-        weight: 1,
-        fillColor: "#fff",
+        color: isSnapped ? "#00838f" : "#333",
+        weight: isSnapped ? 2 : 1,
+        fillColor: isSnapped ? "#00acc1" : "#fff",
         fillOpacity: 1,
         interactive: false,
-      }).addTo(map)
-    );
+      }).addTo(map);
+    });
   }
 
   function finishDrawing() {
@@ -1467,10 +1661,10 @@
       alert(`Add at least ${minPoints} points before finishing.`);
       return;
     }
-    const { type, targetId, points } = drawState;
+    const { type, targetId, points, snapped } = drawState;
     cancelDrawing();
     if (type === "split") doSplit(targetId, points);
-    else doAddArea(points);
+    else doAddArea(points, snapped);
   }
 
   function cancelDrawing() {
@@ -1485,6 +1679,7 @@
     drawStatusEl.hidden = true;
     addAreaBtn.textContent = "Add new area…";
     drawState = null;
+    roadSnapMarkersLayer.clearLayers();
   }
 
   function recomputeFlagsAndRender() {
@@ -1595,4 +1790,9 @@
     panTo(e);
     openPopup(e);
   }
+
+  // Test-only hooks (see tests/road-snap.js) - there's no export/download
+  // path in this page to inspect resulting geometry or map state otherwise.
+  window.__blockTriageGetEntries = () => entries;
+  window.__blockTriageGetZoom = () => map.getZoom();
 })();

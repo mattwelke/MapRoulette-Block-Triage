@@ -172,6 +172,36 @@ you which task ID is involved), then deletes that MapRoulette task and
 creates two new ones for the resulting pieces, automatically, right after
 the local split completes.
 
+### Drawing new areas: snapping to road/path intersections
+
+Click **Add new area…**, then click points on the map to build the outline
+(3+ points, `Enter`/double-click/**Finish** to complete, `Esc`/**Cancel** to
+back out) — same interaction as splitting, just for a whole new polygon.
+While drawing here (not in local file triage), each click within about 15m
+of a real road/multiuse-path/cycle-track intersection snaps exactly to that
+intersection instead of wherever you actually clicked, so corners line up
+with the real street network. Snapped corners show as a filled teal dot
+(unsnapped ones stay white), and small teal dots mark every known
+intersection nearby so you can see where snapping is available before you
+click.
+
+This needs road/path data for the area you're drawing in, which is fetched
+live from the public [Overpass API](https://overpass-api.de) (every way
+tagged `highway=*` — regular roads, multiuse paths, and cycle tracks all use
+that tag) for whatever's currently in view, the moment you click **Add new
+area…**. The draw-status banner reports how the lookup went ("Snapping
+enabled — N nearby intersections found", a "zoom in further" notice below
+zoom 15 (the query would otherwise cover too much ground), or a failure
+message if the request itself fails) — drawing itself never waits on this,
+it just becomes more accurate once the lookup resolves. The fetched data is
+cached and reused for later draws in the same area without re-fetching.
+
+Every snapped corner also gets a small circular notch (~0.5m radius,
+matching the "knife" buffer split uses to separate its two resulting
+pieces — see [Notes / limitations](#notes--limitations)) carved out of the
+polygon right at that point, so the drawn area's boundary sits just next to
+the intersection rather than exactly on top of it.
+
 ### Combining areas (and bridging a gap)
 
 Click **Combine areas…**, then click 2+ areas (map or list) to merge them,
