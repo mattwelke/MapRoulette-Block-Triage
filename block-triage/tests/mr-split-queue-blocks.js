@@ -71,11 +71,12 @@ runTest("mr-split-queue-blocks: split pieces apply locally, block other actions,
   assert(await row9a.evaluate((el) => el.classList.contains("mr-split-queued")), "piece 9a should show as split-queued");
   assert(await row9b.evaluate((el) => el.classList.contains("mr-split-queued")), "piece 9b should show as split-queued");
 
-  // A pending piece's popup should offer only "Drop this piece" - no
-  // Split, Edit boundary, or remove/add action.
+  // A pending piece's popup should offer Split (it can still be split
+  // again - see split-in-group.js) and Drop this piece, but no Edit
+  // boundary or remove/add action.
   await row9a.click();
   await page.waitForTimeout(300);
-  assert((await page.$("[data-split]")) === null, "a pending piece's popup should not offer Split");
+  assert((await page.$("[data-split]")) !== null, "a pending piece's popup should still offer Split");
   assert((await page.$("[data-edit-boundary]")) === null, "a pending piece's popup should not offer Edit boundary");
   assert((await page.$("[data-mr-action]")) === null, "a pending piece's popup should not offer the add/remove action");
   assert((await page.$("[data-drop-split-piece]")) !== null, "a pending piece's popup should offer Drop this piece");

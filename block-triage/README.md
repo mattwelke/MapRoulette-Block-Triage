@@ -211,15 +211,26 @@ a time — if the area was task-linked, its old task is deleted and a new
 task is created for every piece still standing.
 
 While a split's pieces are still pending (not yet processed), each is
-off-limits to everything else — combining, editing its boundary, quick
-queue-delete, and re-splitting are all refused (with an explanation) —
-except one thing: each piece's popup offers **Drop this piece**, which
-discards just that piece (its geometry is gone, not merged anywhere) and
-leaves the rest of the group pending. At least one piece must remain; to
-back out of the split entirely, undo it (`Ctrl+Z`) instead. Dropping a
-piece is its own undoable step, separate from the split itself — undoing
-once brings back the dropped piece, undoing again reverses the whole
-split back to the original area.
+off-limits to combining, editing its boundary, and quick queue-delete (all
+refused with an explanation) — but each piece's popup still offers two
+things:
+- **Drop this piece**, which discards just that piece (its geometry is
+  gone, not merged anywhere) and leaves the rest of the group pending. At
+  least one piece must remain; to back out of the split entirely, undo it
+  (`Ctrl+Z`) instead. Dropping a piece is its own undoable step, separate
+  from the split itself — undoing once brings back the dropped piece,
+  undoing again reverses the whole split back to the original area.
+- **Split…**, same as any other area — splitting a piece that's already
+  part of a pending group doesn't start a second group, it just divides
+  that one piece further and folds the new pieces into the same group, in
+  its place. There's no limit to how many times you can keep dividing a
+  piece this way before processing the queue; whenever it does get
+  processed, the root area's old task (if it had one) is deleted once and
+  a new task is created for every piece still standing, however many
+  splits deep that ended up being. Each nested split is its own undo step
+  too — undoing unwinds the most recent one first, leaving any splits
+  further up the chain untouched, then keeps unwinding one step at a time
+  back to the original area.
 
 ### Drawing new areas
 

@@ -43,11 +43,24 @@
   }
 
   // Like mrBlockReason, but also blocks other structural actions (combine,
-  // edit boundary, quick queue-delete, split again) on a piece that's still
-  // part of an unprocessed split group - it might yet be dropped, so it
-  // shouldn't be touched by anything else in the meantime.
+  // edit boundary, quick queue-delete) on a piece that's still part of an
+  // unprocessed split group - it might yet be dropped, so it shouldn't be
+  // touched by anything else in the meantime. Splitting itself is the one
+  // exception - see splitBlockReason - a piece can be split again while
+  // its group is still pending, which just folds its own resulting pieces
+  // into that same group.
   function structuralBlockReason(entry) {
     if (entry.pendingSplitGroup != null) return "queued for a pending split";
+    if (entry.pendingReplace) return "queued for a pending replace";
+    return mrBlockReason(entry);
+  }
+
+  // Used specifically to gate splitting (queueSplit) - deliberately more
+  // permissive than structuralBlockReason: a piece that's already part of
+  // a pending split group is still splittable (see queueSplit's nested-
+  // split branch), it just can't be combined, edited, or removed while
+  // pending.
+  function splitBlockReason(entry) {
     if (entry.pendingReplace) return "queued for a pending replace";
     return mrBlockReason(entry);
   }
@@ -1358,7 +1371,7 @@
         lockReason || replacePending
           ? ""
           : splitPending
-          ? `<div class="popup-actions"><button data-drop-split-piece>Drop this piece</button></div>`
+          ? `<div class="popup-actions"><button data-split>Split&hellip;</button><button data-drop-split-piece>Drop this piece</button></div>`
           : `<div class="popup-actions"><button data-split>Split&hellip;</button><button data-edit-boundary>Edit boundary&hellip;</button></div>`
       }
       ${
@@ -1494,6 +1507,7 @@
     else if (action.type === "edit") undoEdit(action);
     else if (action.type === "replace") undoReplace(action);
     else if (action.type === "drop-split-piece") undoDropSplitPiece(action);
+    else if (action.type === "split-in-group") undoSplitInGroup(action);
     redoStack.push(action);
     updateUndoRedoButtons();
   }
@@ -1507,6 +1521,7 @@
     else if (action.type === "edit") redoEdit(action);
     else if (action.type === "replace") redoReplace(action);
     else if (action.type === "drop-split-piece") redoDropSplitPiece(action);
+    else if (action.type === "split-in-group") redoSplitInGroup(action);
     undoStack.push(action);
     updateUndoRedoButtons();
   }
@@ -1598,22 +1613,67 @@
   // Validates the cut and, if it works, applies the split locally right
   // away (same as combine/add/replace) - only the MapRoulette sync is
   // deferred to a queue. Each resulting piece is tagged pendingSplitGroup
-  // so it's visible and clickable (with its own "Drop this piece" action)
-  // while the group waits to be processed, but blocked from other
-  // structural actions (see structuralBlockReason) in the meantime.
+  // so it's visible and clickable (with its own "Drop this piece" action,
+  // and its own "Split…" to divide it again) while the group waits to be
+  // processed, but blocked from other structural actions (see
+  // structuralBlockReason) in the meantime.
+  //
+  // Splitting a piece that's already part of a pending group (a nested
+  // split) doesn't create a second group - it splices that piece's own
+  // resulting pieces into the SAME group, in its place. This keeps
+  // processing/dropping generic (they already just operate on whatever's
+  // in a group's newSnapshots array, however many pieces that is) and
+  // keeps the mrAddQueue auto-queue decision anchored to the group's real
+  // root (an intermediate piece is always unlinked by construction, so
+  // checking ITS mrTaskId would always look "unlinked" even when the root
+  // has a real task waiting to be resynced when the group is processed).
   function queueSplit(targetId, points) {
     const entry = entries.get(targetId);
     if (!entry) return;
-    const blockReason = structuralBlockReason(entry);
+    const blockReason = splitBlockReason(entry);
     if (blockReason) {
       alert(`This area's MapRoulette task is ${blockReason} - it can't be split.`);
       return;
     }
     const pieces = computeSplitPieces(entry, points);
     if (!pieces) return;
-    const { originalSnapshot, newSnapshots } = pieces;
+    const { originalSnapshot: replacedSnapshot, newSnapshots } = pieces;
 
-    const groupId = hashString(JSON.stringify(originalSnapshot.id) + ":" + newFeatureCounter++);
+    const existingGroupId = entry.pendingSplitGroup;
+    if (existingGroupId != null) {
+      const group = splitQueue.get(existingGroupId);
+      const spliceIndex = group.newSnapshots.findIndex((s) => s.id === targetId);
+      newSnapshots.forEach((snap) => {
+        snap.pendingSplitGroup = existingGroupId;
+      });
+      group.newSnapshots.splice(spliceIndex, 1, ...newSnapshots);
+
+      const wasInAddQueue = mrAddQueue.has(targetId);
+      removeEntry(targetId);
+      mrAddQueue.delete(targetId);
+      if (wasInAddQueue) newSnapshots.forEach((snap) => mrAddQueue.add(snap.id));
+      newSnapshots.forEach((snap) => restoreEntryFromSnapshot(snap));
+      updateMrAddQueueButton();
+
+      undoStack.push({
+        type: "split-in-group",
+        groupId: existingGroupId,
+        replacedSnapshot,
+        newSnapshots,
+        spliceIndex,
+        wasInAddQueue,
+      });
+      redoStack = [];
+      updateUndoRedoButtons();
+      updateStats();
+      renderList();
+
+      selectFeature(newSnapshots[0].id);
+      panTo(entries.get(newSnapshots[0].id));
+      return;
+    }
+
+    const groupId = hashString(JSON.stringify(replacedSnapshot.id) + ":" + newFeatureCounter++);
     newSnapshots.forEach((snap) => {
       snap.pendingSplitGroup = groupId;
     });
@@ -1623,16 +1683,16 @@
     // MapRoulette task of its own - if it did, processing the split queue
     // creates their replacement tasks directly instead, bypassing the add
     // queue entirely.
-    if (!originalSnapshot.mrTaskId) {
+    if (!replacedSnapshot.mrTaskId) {
       newSnapshots.forEach((snap) => mrAddQueue.add(snap.id));
     }
     newSnapshots.forEach((snap) => restoreEntryFromSnapshot(snap));
     updateMrAddQueueButton();
 
-    splitQueue.set(groupId, { originalSnapshot, newSnapshots });
+    splitQueue.set(groupId, { originalSnapshot: replacedSnapshot, newSnapshots });
     updateSplitQueueButton();
 
-    undoStack.push({ type: "split", groupId, original: originalSnapshot, newSnapshots });
+    undoStack.push({ type: "split", groupId, original: replacedSnapshot, newSnapshots });
     redoStack = [];
     updateUndoRedoButtons();
     updateStats();
@@ -1640,6 +1700,51 @@
 
     selectFeature(newSnapshots[0].id);
     panTo(entries.get(newSnapshots[0].id));
+  }
+
+  function undoSplitInGroup(action) {
+    action.newSnapshots.forEach((snap) => {
+      removeEntry(snap.id);
+      mrAddQueue.delete(snap.id);
+    });
+    const group = splitQueue.get(action.groupId);
+    if (group) {
+      const idx = Math.min(action.spliceIndex, group.newSnapshots.length);
+      group.newSnapshots.splice(idx, 0, action.replacedSnapshot);
+      action.replacedSnapshot.pendingSplitGroup = action.groupId;
+    } else {
+      // The group was already processed or fully undone in the meantime -
+      // just bring this piece back as a plain, no-longer-pending area.
+      action.replacedSnapshot.pendingSplitGroup = null;
+    }
+    if (action.wasInAddQueue) mrAddQueue.add(action.replacedSnapshot.id);
+    restoreEntryFromSnapshot(action.replacedSnapshot);
+    updateMrAddQueueButton();
+    updateStats();
+    renderList();
+    selectFeature(action.replacedSnapshot.id);
+    panTo(entries.get(action.replacedSnapshot.id));
+  }
+
+  function redoSplitInGroup(action) {
+    removeEntry(action.replacedSnapshot.id);
+    mrAddQueue.delete(action.replacedSnapshot.id);
+    const group = splitQueue.get(action.groupId);
+    if (group) {
+      action.newSnapshots.forEach((snap) => {
+        snap.pendingSplitGroup = action.groupId;
+      });
+      const idx = group.newSnapshots.findIndex((s) => s.id === action.replacedSnapshot.id);
+      if (idx !== -1) group.newSnapshots.splice(idx, 1, ...action.newSnapshots);
+      else group.newSnapshots.push(...action.newSnapshots); // defensive - shouldn't normally happen
+    }
+    if (action.wasInAddQueue) action.newSnapshots.forEach((snap) => mrAddQueue.add(snap.id));
+    action.newSnapshots.forEach((snap) => restoreEntryFromSnapshot(snap));
+    updateMrAddQueueButton();
+    updateStats();
+    renderList();
+    selectFeature(action.newSnapshots[0].id);
+    panTo(entries.get(action.newSnapshots[0].id));
   }
 
   // Lets the user discard one resulting piece of a still-pending split
