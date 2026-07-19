@@ -1871,12 +1871,12 @@
   //
   // Fetches every OSM way tagged highway=* (this deliberately covers roads of
   // any kind, plus paths/cycle tracks - anything using the highway=* schema)
-  // within the current map view from the public Overpass API, and offers two
-  // kinds of points on that network as click-snap targets while drawing a
-  // new area's outline: where any two ways cross, and every vertex along a
-  // single way's own geometry (a "shape point" - where a road bends without
-  // crossing anything else). So corners land exactly on a real intersection
-  // or bend instead of wherever the mouse happened to be.
+  // within the current map view from the public Overpass API, and offers
+  // every node on that network as a click-snap target while drawing a new
+  // area's outline - both real junctions (where two or more ways share a
+  // node) and plain shape points (where a single way bends without meeting
+  // anything else). So corners land exactly on a real intersection or bend
+  // instead of wherever the mouse happened to be.
 
   function paddedBounds(bounds, factor) {
     const ne = bounds.getNorthEast();
@@ -1906,48 +1906,18 @@
     return kept;
   }
 
-  // [minX, minY, maxX, maxY] - cheap enough to compute for every way up
-  // front and compare pairwise, unlike the actual intersection test below.
-  function boundingBoxOf(coords) {
-    let minX = Infinity,
-      minY = Infinity,
-      maxX = -Infinity,
-      maxY = -Infinity;
-    coords.forEach(([x, y]) => {
-      if (x < minX) minX = x;
-      if (x > maxX) maxX = x;
-      if (y < minY) minY = y;
-      if (y > maxY) maxY = y;
-    });
-    return [minX, minY, maxX, maxY];
-  }
-
-  function boundingBoxesOverlap(a, b) {
-    return a[0] <= b[2] && b[0] <= a[2] && a[1] <= b[3] && b[1] <= a[3];
-  }
-
+  // Every OSM node is a snap candidate - both a way's own shape points
+  // (bends) and real junctions, since two ways meeting at grade share an
+  // actual node in OSM's data model (that's what makes them routable as
+  // connected). So there's no need to geometrically compute where ways
+  // cross (via turf.lineIntersect) - just collect every node from every
+  // way, then dedupe the ones that show up in more than one (a junction
+  // node appears once per way that passes through it). This also avoids a
+  // subtle wrong answer the old intersection math had: a bridge/tunnel
+  // crossing over another road with no real junction there would still
+  // read as a crossing point geometrically, even though it isn't one.
   function computeRoadSnapPoints(ways) {
     const points = [];
-    // turf.lineIntersect does real segment-by-segment geometry work, and a
-    // naive pairwise loop over every way (regardless of whether the two are
-    // anywhere near each other) is what made this freeze the page for a few
-    // seconds in a road-dense view - the fetch itself is async, but this
-    // math isn't, and it runs on the same thread as everything else. Most
-    // way pairs in a real network don't overlap at all, so a cheap bounding
-    // box check first skips the expensive test for nearly all of them.
-    const bboxes = ways.map((way) => boundingBoxOf(way.geometry.coordinates));
-    for (let i = 0; i < ways.length; i++) {
-      for (let j = i + 1; j < ways.length; j++) {
-        if (!boundingBoxesOverlap(bboxes[i], bboxes[j])) continue;
-        let hit;
-        try {
-          hit = turf.lineIntersect(ways[i], ways[j]);
-        } catch (err) {
-          continue; // malformed geometry from the API - skip that pair
-        }
-        hit.features.forEach((f) => points.push(f.geometry.coordinates));
-      }
-    }
     ways.forEach((way) => {
       way.geometry.coordinates.forEach((coord) => points.push(coord));
     });

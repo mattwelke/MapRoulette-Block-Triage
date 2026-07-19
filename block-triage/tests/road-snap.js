@@ -14,6 +14,10 @@ const CHALLENGE_ID = 44001;
 // exactly at (lat 43.45, lon -79.68) - the map's default center/zoom before
 // any challenge is loaded (live.js: L.map(...).setView([43.45, -79.68], 12)),
 // so zooming in without panning keeps that point at the container's center.
+// The crossing point is listed as an actual shared node in both ways' own
+// geometry (a middle point, not just the two endpoints) - snapping reads
+// every way's nodes directly rather than computing crossings geometrically,
+// matching how OSM itself represents a real at-grade junction.
 const INTERSECTION_LAT = 43.45;
 const INTERSECTION_LON = -79.68;
 
@@ -25,6 +29,7 @@ function overpassResponse() {
         id: 1,
         geometry: [
           { lat: INTERSECTION_LAT, lon: INTERSECTION_LON - 0.005 },
+          { lat: INTERSECTION_LAT, lon: INTERSECTION_LON },
           { lat: INTERSECTION_LAT, lon: INTERSECTION_LON + 0.005 },
         ],
       },
@@ -33,6 +38,7 @@ function overpassResponse() {
         id: 2,
         geometry: [
           { lat: INTERSECTION_LAT - 0.005, lon: INTERSECTION_LON },
+          { lat: INTERSECTION_LAT, lon: INTERSECTION_LON },
           { lat: INTERSECTION_LAT + 0.005, lon: INTERSECTION_LON },
         ],
       },

@@ -13,6 +13,9 @@ const {
 const CHALLENGE_ID = 93001;
 
 function overpassResponseAt(lat, lon) {
+  // Snapping reads each way's own nodes directly (no geometric crossing
+  // computation - see computeRoadSnapPoints), so (lat, lon) needs to be an
+  // actual listed vertex, not just the two ways' unlisted crossing point.
   return {
     elements: [
       {
@@ -20,6 +23,7 @@ function overpassResponseAt(lat, lon) {
         id: 1,
         geometry: [
           { lat, lon: lon - 0.01 },
+          { lat, lon },
           { lat, lon: lon + 0.01 },
         ],
       },
@@ -28,6 +32,7 @@ function overpassResponseAt(lat, lon) {
         id: 2,
         geometry: [
           { lat: lat - 0.01, lon },
+          { lat, lon },
           { lat: lat + 0.01, lon },
         ],
       },
