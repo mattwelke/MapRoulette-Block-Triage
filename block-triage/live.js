@@ -1906,10 +1906,39 @@
     return kept;
   }
 
+  // [minX, minY, maxX, maxY] - cheap enough to compute for every way up
+  // front and compare pairwise, unlike the actual intersection test below.
+  function boundingBoxOf(coords) {
+    let minX = Infinity,
+      minY = Infinity,
+      maxX = -Infinity,
+      maxY = -Infinity;
+    coords.forEach(([x, y]) => {
+      if (x < minX) minX = x;
+      if (x > maxX) maxX = x;
+      if (y < minY) minY = y;
+      if (y > maxY) maxY = y;
+    });
+    return [minX, minY, maxX, maxY];
+  }
+
+  function boundingBoxesOverlap(a, b) {
+    return a[0] <= b[2] && b[0] <= a[2] && a[1] <= b[3] && b[1] <= a[3];
+  }
+
   function computeRoadSnapPoints(ways) {
     const points = [];
+    // turf.lineIntersect does real segment-by-segment geometry work, and a
+    // naive pairwise loop over every way (regardless of whether the two are
+    // anywhere near each other) is what made this freeze the page for a few
+    // seconds in a road-dense view - the fetch itself is async, but this
+    // math isn't, and it runs on the same thread as everything else. Most
+    // way pairs in a real network don't overlap at all, so a cheap bounding
+    // box check first skips the expensive test for nearly all of them.
+    const bboxes = ways.map((way) => boundingBoxOf(way.geometry.coordinates));
     for (let i = 0; i < ways.length; i++) {
       for (let j = i + 1; j < ways.length; j++) {
+        if (!boundingBoxesOverlap(bboxes[i], bboxes[j])) continue;
         let hit;
         try {
           hit = turf.lineIntersect(ways[i], ways[j]);
