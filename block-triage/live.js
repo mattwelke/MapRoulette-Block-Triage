@@ -1220,7 +1220,7 @@
   function category(entry) {
     if (entry.mrLocked) return "locked";
     if (entry.mrActiveLockedBy != null) return "active-lock";
-    if (entry.area >= targetAreaLimit * 2) return "oversized";
+    if (entry.area >= targetAreaLimit) return "oversized";
     if (entry.area <= targetAreaLimit * 0.5) return "undersized";
     return "normal";
   }
@@ -2681,7 +2681,7 @@
   function updateStats() {
     let normal = 0, oversized = 0, undersized = 0;
     entries.forEach((e) => {
-      if (e.area >= targetAreaLimit * 2) oversized++;
+      if (e.area >= targetAreaLimit) oversized++;
       else if (e.area <= targetAreaLimit * 0.5) undersized++;
       else normal++;
     });

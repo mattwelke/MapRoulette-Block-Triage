@@ -157,7 +157,7 @@ doubt that the actions here have real, remote consequences.
 reviewed/kept/flagged status per area), live editing colors every area by
 how its size compares to a **target area limit** (set in the sidebar,
 defaulting to 5,000 m²):
-- **Oversized** (orange-red) — at least 2× the target limit, drawing
+- **Oversized** (orange-red) — at least the target limit, drawing
   attention to it as a candidate to split.
 - **Undersized** (yellow) — at most half the target limit, suggesting you
   look for a neighboring area to combine it with.
