@@ -100,6 +100,10 @@ async function runBody(page) {
   assert(overpassRequests.length === 1, `expected exactly 1 Overpass request once zoomed in, got ${overpassRequests.length}`);
   assert(overpassRequests[0].includes("highway"), "the Overpass query should filter on highway=*");
   assert(
+    decodeURIComponent(overpassRequests[0]).includes("waterway") && decodeURIComponent(overpassRequests[0]).includes("beach"),
+    "the Overpass query should also fetch streams/rivers and beaches"
+  );
+  assert(
     (await page.$eval("#draw-status-text", (el) => el.textContent)).includes("Snapping enabled"),
     "draw-status should confirm snapping is enabled once the fetch resolves"
   );
@@ -266,6 +270,123 @@ async function runBendBody(page) {
   assert(
     result.minDistKm > 0.0002 && result.minDistKm < 0.002,
     `expected the closest ring vertex to sit near (but not exactly on) the bend point, got ${result.minDistKm}km`
+  );
+
+  assertNoPageErrors(page);
+}
+
+// A road crossing a stream with NO shared node at all - like a bridge or a
+// tunnel, where the two features aren't topologically connected in OSM's
+// data model but still form a visually obvious crossing a mapper would
+// recognize as a boundary landmark. Each way only lists its own two
+// endpoints; the crossing point itself only exists as their geometric
+// intersection.
+const BRIDGE_LAT = 43.45;
+const BRIDGE_LON = -79.68;
+
+function overpassResponseWithBridge() {
+  return {
+    elements: [
+      {
+        type: "way",
+        id: 4,
+        geometry: [
+          { lat: BRIDGE_LAT, lon: BRIDGE_LON - 0.005 },
+          { lat: BRIDGE_LAT, lon: BRIDGE_LON + 0.005 },
+        ],
+      },
+      {
+        type: "way",
+        id: 5,
+        geometry: [
+          { lat: BRIDGE_LAT - 0.005, lon: BRIDGE_LON },
+          { lat: BRIDGE_LAT + 0.005, lon: BRIDGE_LON },
+        ],
+      },
+    ],
+  };
+}
+
+runTest("road-snap: snaps to a road/stream crossing even with no shared OSM node (bridge/tunnel case)", async () => {
+  const { browser, page } = await launch();
+  try {
+    await runBridgeBody(page);
+  } finally {
+    await browser.close();
+  }
+});
+
+async function runBridgeBody(page) {
+  page.on("dialog", async (dialog) => await dialog.accept());
+
+  await page.route("https://overpass-api.de/api/interpreter**", async (route) => {
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(overpassResponseWithBridge()) });
+  });
+
+  const CHALLENGE_ID_3 = 44003;
+  await routeMrChallenge(page, CHALLENGE_ID_3, []);
+
+  await page.goto(liveUrl());
+  await page.waitForTimeout(300);
+  await loadLiveChallenge(page, CHALLENGE_ID_3, "fake-test-key");
+
+  for (let i = 0; i < 4; i++) {
+    await page.click(".leaflet-control-zoom-in");
+    await page.waitForTimeout(400);
+  }
+  assert((await page.evaluate(() => window.__blockTriageGetZoom())) >= 15, "expected the zoom-in loop to reach the snap threshold");
+
+  await page.click("#add-area-btn");
+  await page.waitForTimeout(1000);
+  assert(
+    (await page.$eval("#draw-status-text", (el) => el.textContent)).includes("Snapping enabled"),
+    "draw-status should confirm snapping is enabled once the fetch resolves"
+  );
+
+  const mapBox = await page.$eval("#map", (el) => {
+    const r = el.getBoundingClientRect();
+    return { x: r.x, y: r.y, width: r.width, height: r.height };
+  });
+  const cx = mapBox.x + mapBox.width / 2;
+  const cy = mapBox.y + mapBox.height / 2;
+
+  await page.mouse.click(cx, cy); // right at the unshared crossing point
+  await page.waitForTimeout(150);
+  await page.mouse.click(cx + 200, cy + 40);
+  await page.waitForTimeout(150);
+  await page.mouse.click(cx + 100, cy + 220);
+  await page.waitForTimeout(150);
+  await page.keyboard.press("Enter");
+  await page.waitForTimeout(500);
+
+  const result = await page.evaluate(
+    ({ lat, lon }) => {
+      const entries = window.__blockTriageGetEntries();
+      let found = null;
+      entries.forEach((e) => {
+        if (String(e.idx).startsWith("new-")) found = e;
+      });
+      if (!found) return { ok: false };
+      const ring = found.feature.geometry.coordinates[0];
+      const crossingPt = turf.point([lon, lat]);
+      let minDistKm = Infinity;
+      ring.forEach((coord) => {
+        const d = turf.distance(turf.point(coord), crossingPt, { units: "kilometers" });
+        if (d < minDistKm) minDistKm = d;
+      });
+      return { ok: true, ringLength: ring.length, minDistKm };
+    },
+    { lat: BRIDGE_LAT, lon: BRIDGE_LON }
+  );
+
+  assert(result.ok, "expected a freshly-drawn area to exist after finishing the draw");
+  assert(
+    result.ringLength > 6,
+    `expected the snapped corner's buffer-difference to add ring vertices (a carved notch), got ring length ${result.ringLength}`
+  );
+  assert(
+    result.minDistKm > 0.0002 && result.minDistKm < 0.002,
+    `expected the closest ring vertex to sit near (but not exactly on) the unshared crossing point, got ${result.minDistKm}km`
   );
 
   assertNoPageErrors(page);

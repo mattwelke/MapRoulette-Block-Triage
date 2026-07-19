@@ -181,35 +181,44 @@ you which task ID is involved), then deletes that MapRoulette task and
 creates two new ones for the resulting pieces, automatically, right after
 the local split completes.
 
-### Drawing new areas: snapping to road/path intersections
+### Drawing new areas: snapping to map features
 
 Click **Add new area…**, then click points on the map to build the outline
 (3+ points, `Enter`/double-click/**Finish** to complete, `Esc`/**Cancel** to
 back out) — same interaction as splitting, just for a whole new polygon.
 While drawing here (not in local file triage), each click within about 15m
-of a real road/multiuse-path/cycle-track intersection snaps exactly to that
-intersection instead of wherever you actually clicked, so corners line up
-with the real street network. Snapped corners show as a filled teal dot
-(unsnapped ones stay white), and small teal dots mark every known
-intersection nearby so you can see where snapping is available before you
-click.
+of a recognizable map feature snaps exactly to it instead of wherever you
+actually clicked, so corners line up with landmarks a mapper would actually
+use to describe a task's boundary. Three kinds of points count:
+- any node along a road, multiuse path, or cycle track (an endpoint, or a
+  bend where it changes direction)
+- likewise for a stream, river, or beach
+- a point where two of the above visually cross, even if they aren't
+  topologically connected in OSM's own data (e.g. a road bridge over a
+  stream, or a tunnel under another road) — since that's still exactly the
+  kind of landmark a mapper would draw a boundary through
 
-This needs road/path data for the area you're drawing in, which is fetched
-live from the public [Overpass API](https://overpass-api.de) (every way
-tagged `highway=*` — regular roads, multiuse paths, and cycle tracks all use
-that tag) for whatever's currently in view, the moment you click **Add new
-area…**. The draw-status banner reports how the lookup went ("Snapping
-enabled — N nearby intersections found", a "zoom in further" notice below
-zoom 15 (the query would otherwise cover too much ground), or a failure
-message if the request itself fails) — drawing itself never waits on this,
-it just becomes more accurate once the lookup resolves. The fetched data is
-cached and reused for later draws in the same area without re-fetching.
+Snapped corners show as a filled teal dot (unsnapped ones stay white), and
+small teal dots mark every known snap point nearby so you can see where
+snapping is available before you click.
+
+This needs the relevant map data for the area you're drawing in, which is
+fetched live from the public [Overpass API](https://overpass-api.de)
+(roads/paths/cycle tracks via `highway=*`, streams/rivers via
+`waterway=river` or `waterway=stream`, beaches via `natural=beach`) for
+whatever's currently in view, the moment you click **Add new area…**. The
+draw-status banner reports how the lookup went ("Snapping enabled — N
+nearby snap points found", a "zoom in further" notice below zoom 15 (the
+query would otherwise cover too much ground), or a failure message if the
+request itself fails) — drawing itself never waits on this, it just becomes
+more accurate once the lookup resolves. The fetched data is cached and
+reused for later draws in the same area without re-fetching.
 
 Every snapped corner also gets a small circular notch (~0.5m radius,
 matching the "knife" buffer split uses to separate its two resulting
 pieces — see [Notes / limitations](#notes--limitations)) carved out of the
 polygon right at that point, so the drawn area's boundary sits just next to
-the intersection rather than exactly on top of it.
+the snap point rather than exactly on top of it.
 
 ### Combining areas
 
@@ -219,7 +228,7 @@ same behavior as local file triage: they need to actually touch (or be
 separated only by a hairline gap, e.g. two pieces from an earlier split),
 or it's rejected with an explanation rather than producing a
 `MultiPolygon`. If you want two areas to end up joined, draw them sharing
-an exact boundary point in the first place — road/path snapping (above)
+an exact boundary point in the first place — map-feature snapping (above)
 makes that reliable — rather than relying on combine to bridge a gap
 between them.
 
@@ -237,10 +246,11 @@ a stray click or drag on the map never silently reshapes something. While
 editing:
 - Drag any point (mouse or touch) to move it; the outline updates live as
   you drag.
-- The same road/path snapping used by **Add new area…** is active here too
-  — drag a point near a real intersection or bend and it snaps exactly to
-  it, with the same small inset notch carved at that corner once you
-  finish.
+- The same map-feature snapping used by **Add new area…** is active here
+  too — drag a point near a real snap point (a road/path/stream/river/beach
+  node, a bend, or a visual crossing between two of them) and it snaps
+  exactly to it, with the same small inset notch carved at that corner once
+  you finish.
 - `Enter`/**Finish** commits the new shape (`Esc`/**Cancel** discards it
   entirely, leaving the area exactly as it was). This is undoable like any
   other change.
