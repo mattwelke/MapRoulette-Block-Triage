@@ -21,6 +21,7 @@
         <button id="redo-btn" disabled title="Redo (Ctrl+Shift+Z)">&#8631; Redo</button>
         <button id="add-area-btn" disabled title="Draw a new area's outline by clicking points on the map">Add new area&hellip;</button>
         <button id="combine-area-btn" disabled title="Click 2+ adjacent areas to merge them back into one">Combine areas&hellip;</button>
+        <button id="replace-area-btn" disabled title="Select one or more areas, then draw one or more new areas to replace them">Replace areas&hellip;</button>
         <span id="reference-controls">
           <label class="btn" for="reference-file-input">Load reference layer&hellip;</label>
           <input type="file" id="reference-file-input" accept=".geojson,.json,application/geo+json,application/json">
@@ -105,6 +106,16 @@
           </div>
           <button id="mr-split-queue-btn" disabled>Process split queue (0)</button>
           <div id="mr-split-queue-status" class="muted"></div>
+          <hr>
+          <div class="muted">
+            "Replace areas…" queues the swap instead of syncing it right
+            away - the replacement areas show a teal dashed outline until
+            you process the queue below, which deletes any linked
+            MapRoulette tasks for the areas you replaced and creates new
+            ones for the areas you drew instead, one group at a time.
+          </div>
+          <button id="mr-replace-queue-btn" disabled>Process replace queue (0)</button>
+          <div id="mr-replace-queue-status" class="muted"></div>
         </div>
 
         <div id="thresholds">
@@ -141,6 +152,7 @@
           <div>While drawing: click to add a point, <kbd>Enter</kbd> or double-click to finish, <kbd>Esc</kbd> to cancel</div>
           <div>While combining: click areas (map or list) to select, <kbd>Enter</kbd> to merge, <kbd>Esc</kbd> to cancel</div>
           <div>While editing a boundary: drag a point to move it, <kbd>Enter</kbd> to finish, <kbd>Esc</kbd> to cancel</div>
+          <div>While replacing: click areas to select, <kbd>Enter</kbd> to confirm selection then again to finish drawing, <kbd>Esc</kbd> to cancel</div>
         </div>
 
         <div id="feature-list-wrap">

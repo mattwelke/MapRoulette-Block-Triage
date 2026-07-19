@@ -48,6 +48,7 @@
   // shouldn't be touched by anything else in the meantime.
   function structuralBlockReason(entry) {
     if (splitQueue.has(entry.id)) return "queued for a pending split";
+    if (entry.pendingReplace) return "queued for a pending replace";
     return mrBlockReason(entry);
   }
 
@@ -92,6 +93,15 @@
   // while it waits to be processed.
   /** @type {Map<string, {originalSnapshot: object, newSnapshots: object[]}>} */
   let splitQueue = new Map();
+  // Groups queued by "Replace areas…", keyed by a synthetic group id, mapped
+  // to the snapshots of the areas that were replaced and the snapshots of
+  // the areas drawn to replace them - unlike split, the local swap (remove
+  // originals, add replacements) already happened by the time a group lands
+  // here; only the MapRoulette sync (delete the originals' tasks, create
+  // tasks for the replacements) is deferred to processing. Each replacement
+  // entry carries entry.pendingReplace = true until its group is processed.
+  /** @type {Map<string, {originalSnapshots: object[], newSnapshots: object[]}>} */
+  let replaceQueue = new Map();
   const MR_QUEUE_PACE_MS = 400; // pause between requests when processing any of the queues
   let mrQuickQueueDeleteMode = localStorage.getItem("block-triage:mrQuickQueueDeleteMode") === "true";
 
@@ -157,6 +167,12 @@
   let combineState = null;
   /** @type {null | {id: string, vertexMarkers: L.Marker[], previewLayer: L.Layer|null}} */
   let editState = null;
+  // "selecting": selectedIds is live and nothing's changed locally yet.
+  // "drawing": the selected originals are already removed (originalSnapshots
+  // holds their snapshots) and newSnapshots accumulates each replacement
+  // area drawn so far via "Add new area…", reused from the normal add flow.
+  /** @type {null | {phase: "selecting"|"drawing", selectedIds: Set<string>|null, originalSnapshots: object[], newSnapshots: object[]}} */
+  let replaceState = null;
 
   const map = L.map("map", { preferCanvas: true }).setView([43.45, -79.68], 12);
   const osm = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
@@ -251,6 +267,7 @@
   const redoBtn = document.getElementById("redo-btn");
   const addAreaBtn = document.getElementById("add-area-btn");
   const combineAreaBtn = document.getElementById("combine-area-btn");
+  const replaceAreaBtn = document.getElementById("replace-area-btn");
   const drawStatusEl = document.getElementById("draw-status");
   const drawStatusText = document.getElementById("draw-status-text");
   const drawFinishBtn = document.getElementById("draw-finish-btn");
@@ -275,6 +292,8 @@
   const mrEditQueueStatusEl = document.getElementById("mr-edit-queue-status");
   const mrSplitQueueBtn = document.getElementById("mr-split-queue-btn");
   const mrSplitQueueStatusEl = document.getElementById("mr-split-queue-status");
+  const mrReplaceQueueBtn = document.getElementById("mr-replace-queue-btn");
+  const mrReplaceQueueStatusEl = document.getElementById("mr-replace-queue-status");
   const mrProcessAllBtn = document.getElementById("mr-process-all-btn");
   const mrProcessAllStatusEl = document.getElementById("mr-process-all-status");
   const mrQuickQueueCheckbox = document.getElementById("mr-quick-queue-checkbox");
@@ -287,11 +306,13 @@
   updateMrAddQueueButton();
   updateMrEditQueueButton();
   updateSplitQueueButton();
+  updateReplaceQueueButton();
   scheduleMrLockPoll();
   mrQueueBtn.addEventListener("click", processMrDeleteQueue);
   mrAddQueueBtn.addEventListener("click", processMrAddQueue);
   mrEditQueueBtn.addEventListener("click", processMrEditQueue);
   mrSplitQueueBtn.addEventListener("click", processSplitQueue);
+  mrReplaceQueueBtn.addEventListener("click", processReplaceQueue);
   mrProcessAllBtn.addEventListener("click", processAllQueues);
 
   mrApiKeyInput.addEventListener("change", () => {
@@ -349,15 +370,24 @@
     if (combineState) cancelCombine();
     else startCombine();
   });
+  replaceAreaBtn.addEventListener("click", () => {
+    if (replaceState) cancelReplace();
+    else startReplace();
+  });
   drawFinishBtn.addEventListener("click", () => {
     if (drawState) finishDrawing();
     else if (combineState) finishCombine();
     else if (editState) finishEditBoundary();
+    else if (replaceState) {
+      if (replaceState.phase === "selecting") finishReplaceSelection();
+      else finishReplace();
+    }
   });
   drawCancelBtn.addEventListener("click", () => {
     if (drawState) cancelDrawing();
     else if (combineState) cancelCombine();
     else if (editState) cancelEditBoundary();
+    else if (replaceState) cancelReplace();
   });
 
   targetAreaLimitInput.addEventListener("input", () => {
@@ -402,6 +432,18 @@
       } else if (e.key === "Escape") {
         e.preventDefault();
         cancelEditBoundary();
+      }
+      return;
+    }
+
+    if (replaceState) {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        if (replaceState.phase === "selecting") finishReplaceSelection();
+        else finishReplace();
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        cancelReplace();
       }
       return;
     }
@@ -455,7 +497,7 @@
   // "Process all pending" can be clicked once instead of hunting down each
   // queue's own button individually.
   function updateProcessAllButton() {
-    const total = mrDeleteQueue.size + mrAddQueue.size + mrEditQueue.size + splitQueue.size;
+    const total = mrDeleteQueue.size + mrAddQueue.size + mrEditQueue.size + splitQueue.size + replaceQueue.size;
     mrProcessAllBtn.textContent = `Process all pending (${total})`;
     mrProcessAllBtn.disabled = total === 0;
   }
@@ -470,6 +512,7 @@
     await processMrDeleteQueue();
     await processMrEditQueue();
     await processSplitQueue();
+    await processReplaceQueue();
     updateProcessAllButton();
     mrProcessAllStatusEl.textContent = "Done — see each queue's own status below for details.";
   }
@@ -833,6 +876,7 @@
       recomputeCategoriesAndRender();
       addAreaBtn.disabled = false;
       combineAreaBtn.disabled = false;
+      replaceAreaBtn.disabled = false;
       updateMrBanner();
       kickMrLockPoll();
       mrLoadStatusEl.textContent = `Loaded ${parsed.features.length} task area${parsed.features.length === 1 ? "" : "s"} from challenge ${mrChallengeId}.`;
@@ -1046,6 +1090,7 @@
   function buildEntries(parsed) {
     if (drawState) cancelDrawing();
     if (combineState) cancelCombine();
+    if (replaceState) cancelReplace();
     entries.forEach((e) => map.removeLayer(e.layer));
     entries = new Map();
     orderedIds = [];
@@ -1068,6 +1113,9 @@
     splitQueue = new Map();
     updateSplitQueueButton();
     mrSplitQueueStatusEl.textContent = "";
+    replaceQueue = new Map();
+    updateReplaceQueueButton();
+    mrReplaceQueueStatusEl.textContent = "";
     if (editState) cancelEditBoundary();
 
     parsed.features.forEach((feature, idx) => {
@@ -1125,8 +1173,14 @@
     if (combineState && combineState.selectedIds.has(entry.id)) {
       return { color: "#9c27b0", weight: 4, dashArray: "6 3", fillColor: color, fillOpacity: 0.35 };
     }
+    if (replaceState && replaceState.phase === "selecting" && replaceState.selectedIds.has(entry.id)) {
+      return { color: "#00838f", weight: 4, dashArray: "6 3", fillColor: color, fillOpacity: 0.35 };
+    }
     if (splitQueue.has(entry.id)) {
       return { color: "#ef6c00", weight: 4, dashArray: "2 4", fillColor: color, fillOpacity: 0.35 };
+    }
+    if (entry.pendingReplace) {
+      return { color: "#00838f", weight: 4, dashArray: "2 4", fillColor: color, fillOpacity: 0.35 };
     }
     if (mrDeleteQueue.has(entry.id)) {
       return { color: "#b71c1c", weight: 4, dashArray: "2 4", fillColor: color, fillOpacity: 0.35 };
@@ -1180,6 +1234,13 @@
         toggleCombineSelection(entry.id);
         return;
       }
+      if (replaceState) {
+        L.DomEvent.stopPropagation(e);
+        if (replaceState.phase === "selecting") toggleReplaceSelection(entry.id);
+        // "drawing" phase - clicks on existing areas are inert; finish or
+        // cancel the replace in progress first.
+        return;
+      }
       if (editState) {
         // Editing is focused on one area at a time - Finish or Cancel it
         // first rather than letting a click on some other area do anything.
@@ -1209,6 +1270,7 @@
   function openPopup(entry) {
     const lockReason = mrBlockReason(entry);
     const splitPending = splitQueue.has(entry.id);
+    const replacePending = entry.pendingReplace === true;
     const div = document.createElement("div");
     div.innerHTML = `
       <div><strong>Feature #${entry.idx}</strong></div>
@@ -1225,14 +1287,19 @@
       }
       ${splitPending ? `<div class="mr-locked-note">Queued for a pending split.</div>` : ""}
       ${
-        lockReason
+        replacePending
+          ? `<div class="mr-locked-note">Queued for a pending replace — use Undo to reverse it, or process the replace queue to apply it.</div>`
+          : ""
+      }
+      ${
+        lockReason || replacePending
           ? ""
           : splitPending
           ? `<div class="popup-actions"><button data-cancel-split>Cancel pending split</button></div>`
           : `<div class="popup-actions"><button data-split>Split&hellip;</button><button data-edit-boundary>Edit boundary&hellip;</button></div>`
       }
       ${
-        lockReason || splitPending
+        lockReason || splitPending || replacePending
           ? ""
           : `<div class="popup-actions">
               <button data-mr-action></button>
@@ -1284,7 +1351,7 @@
       });
     }
 
-    if (lockReason || splitPending) {
+    if (lockReason || splitPending || replacePending) {
       const center = entry.layer.getBounds().getCenter();
       L.popup().setLatLng(center).setContent(div).openOn(map);
       return;
@@ -1370,6 +1437,7 @@
     else if (action.type === "add") undoAdd(action);
     else if (action.type === "combine") undoCombine(action);
     else if (action.type === "edit") undoEdit(action);
+    else if (action.type === "replace") undoReplace(action);
     redoStack.push(action);
     updateUndoRedoButtons();
   }
@@ -1381,6 +1449,7 @@
     else if (action.type === "add") redoAdd(action);
     else if (action.type === "combine") redoCombine(action);
     else if (action.type === "edit") redoEdit(action);
+    else if (action.type === "replace") redoReplace(action);
     undoStack.push(action);
     updateUndoRedoButtons();
   }
@@ -1693,6 +1762,7 @@
   function startCombine() {
     if (drawState) cancelDrawing();
     if (editState) cancelEditBoundary();
+    if (replaceState) cancelReplace();
     map.closePopup();
     combineState = { selectedIds: new Set() };
     appEl.classList.add("combining-active");
@@ -1845,12 +1915,280 @@
     panTo(entries.get(action.newSnapshot.id));
   }
 
+  // --- Replace ---
+  //
+  // Two phases: "selecting" (pick 1+ existing areas to replace - nothing
+  // changes locally yet) then "drawing" (the selected originals are already
+  // gone, and "Add new area…" is reused, once or more, to draw whatever
+  // replaces them). Unlike split, the local swap happens immediately once
+  // selection finishes - only the MapRoulette sync (delete the originals'
+  // tasks, create tasks for the replacements) is queued, since there's no
+  // sensible way to show "these areas are about to disappear" without
+  // actually removing them so the user can draw into the freed-up space.
+
+  function startReplace() {
+    if (drawState) cancelDrawing();
+    if (combineState) cancelCombine();
+    if (editState) cancelEditBoundary();
+    map.closePopup();
+    replaceState = { phase: "selecting", selectedIds: new Set(), originalSnapshots: [], newSnapshots: [] };
+    appEl.classList.add("replacing-active");
+    drawStatusEl.hidden = false;
+    updateReplaceStatusText();
+    replaceAreaBtn.textContent = "Cancel replacing…";
+  }
+
+  function updateReplaceStatusText() {
+    if (!replaceState) return;
+    if (replaceState.phase === "selecting") {
+      const n = replaceState.selectedIds.size;
+      drawStatusText.textContent = `Click 1 or more areas to replace (${n} selected so far).`;
+    } else {
+      const n = replaceState.newSnapshots.length;
+      drawStatusText.textContent = `Draw one or more replacement areas with "Add new area…" (${n} drawn so far), then Finish when done.`;
+    }
+  }
+
+  function toggleReplaceSelection(id) {
+    if (!replaceState || replaceState.phase !== "selecting") return;
+    const entry = entries.get(id);
+    const blockReason = entry && !replaceState.selectedIds.has(id) ? structuralBlockReason(entry) : null;
+    if (blockReason) {
+      alert(`This area's MapRoulette task is ${blockReason} - it can't be replaced.`);
+      return;
+    }
+    if (replaceState.selectedIds.has(id)) replaceState.selectedIds.delete(id);
+    else replaceState.selectedIds.add(id);
+    if (entry && entry.layer) entry.layer.setStyle(styleFor(entry));
+    updateReplaceStatusText();
+    renderList();
+  }
+
+  async function finishReplaceSelection() {
+    if (!replaceState || replaceState.phase !== "selecting") return;
+    const ids = Array.from(replaceState.selectedIds);
+    if (ids.length < 1) {
+      alert("Select at least 1 area to replace.");
+      return;
+    }
+    // Last-chance recheck, same reasoning as split/combine - the background
+    // poll could be stale, and this is the moment it actually matters since
+    // the selected areas are about to disappear locally.
+    try {
+      await refreshMrLockState();
+    } catch (err) {
+      // ignore - fall through with whatever lock state we already had
+    }
+    const selectedEntries = ids.map((id) => entries.get(id)).filter(Boolean);
+    const stillBlocked = selectedEntries.find((e) => mrBlockReason(e));
+    if (stillBlocked) {
+      alert(
+        `This area's MapRoulette task is ${mrBlockReason(stillBlocked)} - it can't be replaced. Deselect it (click it again) and try again.`
+      );
+      return;
+    }
+
+    const originalSnapshots = selectedEntries.map((e) => snapshotEntry(e));
+    selectedEntries.forEach((e) => removeEntry(e.id));
+    replaceState.phase = "drawing";
+    replaceState.originalSnapshots = originalSnapshots;
+    replaceState.selectedIds = null;
+    updateStats();
+    renderList();
+    updateReplaceStatusText();
+  }
+
+  // Reuses the normal "Add new area…" draw flow (see finishDrawing), routed
+  // here instead of doAddArea while a replace's drawing phase is active -
+  // the new area becomes a real, visible entry right away, but flagged
+  // pendingReplace and left out of undoStack/mrAddQueue until "Finish
+  // replacing" bundles it (and any siblings) with the originals it replaces.
+  function addReplacementArea(points) {
+    const ring = points.slice();
+    const first = ring[0];
+    const last = ring[ring.length - 1];
+    if (first[0] !== last[0] || first[1] !== last[1]) ring.push(first);
+
+    let feature;
+    try {
+      feature = turf.polygon([ring]);
+    } catch (err) {
+      alert("Could not create an area from those points: " + err.message);
+      return;
+    }
+
+    const { area, compactness } = computeMetrics(feature);
+    const snapshot = {
+      id: hashString(JSON.stringify(feature.geometry) + ":" + newFeatureCounter++),
+      idx: `replace-${replaceState.newSnapshots.length + 1}`,
+      feature,
+      area,
+      compactness,
+      mrTaskId: null,
+      mrTaskStatus: null,
+      mrLocked: false,
+      mrActiveLockedBy: null,
+      pendingReplace: true,
+    };
+    replaceState.newSnapshots.push(snapshot);
+    restoreEntryFromSnapshot(snapshot);
+    updateStats();
+    renderList();
+    updateReplaceStatusText();
+  }
+
+  function finishReplace() {
+    if (!replaceState || replaceState.phase !== "drawing") return;
+    if (replaceState.newSnapshots.length === 0) {
+      alert('Draw at least one replacement area (via "Add new area…") before finishing, or Cancel to back out entirely.');
+      return;
+    }
+    const { originalSnapshots, newSnapshots } = replaceState;
+    const groupId = hashString(JSON.stringify(originalSnapshots.map((s) => s.id)) + ":" + newFeatureCounter++);
+    replaceQueue.set(groupId, { originalSnapshots, newSnapshots });
+    exitReplaceUI();
+    replaceState = null;
+
+    undoStack.push({ type: "replace", groupId, originals: originalSnapshots, newSnapshots });
+    redoStack = [];
+    updateUndoRedoButtons();
+    updateReplaceQueueButton();
+    updateStats();
+    renderList();
+  }
+
+  function cancelReplace() {
+    if (!replaceState) return;
+    if (replaceState.phase === "selecting") {
+      // Nothing removed yet - just clear the selection styling.
+      const ids = Array.from(replaceState.selectedIds);
+      replaceState = null;
+      ids.forEach((id) => {
+        const entry = entries.get(id);
+        if (entry && entry.layer) entry.layer.setStyle(styleFor(entry));
+      });
+      exitReplaceUI();
+      renderList();
+      return;
+    }
+    // "drawing" phase - undo the whole thing: drop any replacements drawn so
+    // far (nothing was queued yet) and restore the originals.
+    const { originalSnapshots, newSnapshots } = replaceState;
+    newSnapshots.forEach((snap) => removeEntry(snap.id));
+    originalSnapshots.forEach((snap) => restoreEntryFromSnapshot(snap));
+    replaceState = null;
+    exitReplaceUI();
+    updateStats();
+    renderList();
+  }
+
+  function exitReplaceUI() {
+    appEl.classList.remove("replacing-active");
+    drawStatusEl.hidden = true;
+    replaceAreaBtn.textContent = "Replace areas…";
+  }
+
+  function updateReplaceQueueButton() {
+    mrReplaceQueueBtn.textContent = `Process replace queue (${replaceQueue.size})`;
+    mrReplaceQueueBtn.disabled = replaceQueue.size === 0;
+    updateProcessAllButton();
+  }
+
+  // Deletes every task-linked original in a replace-group, then creates a
+  // fresh task for every replacement drawn for it - the same "delete old(s),
+  // create new(s)" mechanic split uses, just N-to-M instead of 1-to-2.
+  // Doesn't do a live lock recheck first (unlike the other queues) since the
+  // originals are already gone locally by the time a group reaches this
+  // point - there's no entry left to refresh against; a task that became
+  // locked in the meantime just fails the delete below and gets reported
+  // like any other failure, same as the pre-queue split used to work.
+  async function syncReplaceToMapRoulette(originalSnapshots, newSnapshots) {
+    for (const snap of originalSnapshots) {
+      if (!snap.mrTaskId) continue;
+      try {
+        await mrDeleteTask(snap.mrTaskId);
+      } catch (err) {
+        alert(
+          `Replace completed locally, but removing MapRoulette task ${snap.mrTaskId} failed: ${err.message}. It may still exist on MapRoulette; you may want to remove it manually.`
+        );
+      }
+    }
+    for (const snap of newSnapshots) {
+      const liveEntry = entries.get(snap.id);
+      if (!liveEntry) continue; // removed/changed locally before the request resolved
+      try {
+        const created = await mrCreateTask(liveEntry.feature);
+        snap.mrTaskId = created.id;
+        liveEntry.mrTaskId = created.id;
+        liveEntry.layer.setStyle(styleFor(liveEntry));
+      } catch (err) {
+        alert(
+          `One or more original tasks were removed, but creating a new task for a replacement area failed: ${err.message}. Use that area's "Add now" button to retry.`
+        );
+      }
+    }
+  }
+
+  async function processReplaceQueue() {
+    const groupIds = Array.from(replaceQueue.keys());
+    if (groupIds.length === 0) return;
+    const ok = confirm(
+      `This will replace ${groupIds.length} group${
+        groupIds.length === 1 ? "" : "s"
+      } of areas now, deleting any linked MapRoulette tasks and creating new ones for the replacements, one group at a time. Continue?`
+    );
+    if (!ok) return;
+
+    mrReplaceQueueBtn.disabled = true;
+    let done = 0;
+    for (const groupId of groupIds) {
+      done++;
+      const { originalSnapshots, newSnapshots } = replaceQueue.get(groupId);
+      replaceQueue.delete(groupId);
+      newSnapshots.forEach((snap) => {
+        snap.pendingReplace = false;
+        const e = entries.get(snap.id);
+        if (e) {
+          e.pendingReplace = false;
+          e.layer.setStyle(styleFor(e));
+        }
+      });
+      mrReplaceQueueStatusEl.textContent = `Replacing group ${done} of ${groupIds.length}…`;
+      await syncReplaceToMapRoulette(originalSnapshots, newSnapshots);
+      renderList();
+      if (done < groupIds.length) await sleep(MR_QUEUE_PACE_MS);
+    }
+    mrReplaceQueueStatusEl.textContent = `Done — processed ${done} replace group${done === 1 ? "" : "s"}.`;
+    updateReplaceQueueButton();
+  }
+
+  function undoReplace(action) {
+    action.newSnapshots.forEach((snap) => removeEntry(snap.id));
+    replaceQueue.delete(action.groupId);
+    action.originals.forEach((snap) => restoreEntryFromSnapshot(snap));
+    updateReplaceQueueButton();
+    updateStats();
+    renderList();
+    selectFeature(action.originals[0].id);
+    panTo(entries.get(action.originals[0].id));
+  }
+
+  function redoReplace(action) {
+    action.originals.forEach((snap) => removeEntry(snap.id));
+    action.newSnapshots.forEach((snap) => restoreEntryFromSnapshot(snap));
+    replaceQueue.set(action.groupId, { originalSnapshots: action.originals, newSnapshots: action.newSnapshots });
+    updateReplaceQueueButton();
+    updateStats();
+    renderList();
+    selectFeature(action.newSnapshots[0].id);
+    panTo(entries.get(action.newSnapshots[0].id));
+  }
+
   // --- Edit boundary (drag existing vertices, opt-in per area) ---
   //
   // Deliberately a separate, explicit mode (entered only via an area's own
   // "Edit boundary…" popup button) rather than always-draggable vertices,
   // so a stray click/drag on the map never silently reshapes something.
-  // Reuses the same map-feature snap points as "Add new area".
 
   function startEditBoundary(entryId) {
     const entry = entries.get(entryId);
@@ -2086,8 +2424,10 @@
       return;
     }
     const { type, targetId, points } = drawState;
+    const inReplaceDrawing = replaceState && replaceState.phase === "drawing";
     cancelDrawing();
     if (type === "split") queueSplit(targetId, points);
+    else if (inReplaceDrawing) addReplacementArea(points);
     else doAddArea(points);
   }
 
@@ -2100,9 +2440,17 @@
     map.off("dblclick", finishDrawing);
     map.doubleClickZoom.enable();
     appEl.classList.remove("drawing-active");
-    drawStatusEl.hidden = true;
     addAreaBtn.textContent = "Add new area…";
     drawState = null;
+    if (replaceState) {
+      // Still mid-replace (drawing phase) - restore its own status text
+      // instead of hiding the bar, since one polygon finishing/canceling
+      // doesn't end the whole replace operation.
+      drawStatusEl.hidden = false;
+      updateReplaceStatusText();
+    } else {
+      drawStatusEl.hidden = true;
+    }
   }
 
   function recomputeCategoriesAndRender() {
@@ -2156,19 +2504,23 @@
     ids.forEach((id) => {
       const e = entries.get(id);
       const isCombineSelected = combineState && combineState.selectedIds.has(id);
+      const isReplaceSelected = replaceState && replaceState.phase === "selecting" && replaceState.selectedIds.has(id);
       const isMrDeleteQueued = mrDeleteQueue.has(id);
       const isMrAddQueued = mrAddQueue.has(id);
       const isMrEditQueued = mrEditQueue.has(id);
       const isSplitQueued = splitQueue.has(id);
+      const isReplaceQueued = e.pendingReplace === true;
       const row = document.createElement("div");
       row.className =
         "feature-row" +
         (id === selectedId ? " selected" : "") +
         (isCombineSelected ? " combine-selected" : "") +
+        (isReplaceSelected ? " replace-selected" : "") +
         (isMrDeleteQueued ? " mr-delete-queued" : "") +
         (isMrAddQueued ? " mr-add-queued" : "") +
         (isMrEditQueued ? " mr-edit-queued" : "") +
-        (isSplitQueued ? " mr-split-queued" : "");
+        (isSplitQueued ? " mr-split-queued" : "") +
+        (isReplaceQueued ? " mr-replace-queued" : "");
       row.dataset.id = id;
       row.innerHTML = `
         <span class="status-dot ${category(e)}"></span>
@@ -2182,6 +2534,10 @@
         if (combineState) {
           toggleCombineSelection(id);
           return;
+        }
+        if (replaceState) {
+          if (replaceState.phase === "selecting") toggleReplaceSelection(id);
+          return; // drawing phase - finish or cancel the replace in progress first
         }
         if (editState) return; // finish or cancel the boundary edit in progress first
         selectFeature(id);

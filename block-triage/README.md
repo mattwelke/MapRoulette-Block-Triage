@@ -259,6 +259,30 @@ panel) applies every queued edit, one at a time: deletes the old task and
 creates a new one with the edited shape. Editing an area that isn't linked
 yet is purely local — nothing to queue until you add it.
 
+### Replacing areas
+
+Click **Replace areas…**, then click one or more areas (map or list) to
+select them for replacement — `Enter`/**Finish** confirms the selection,
+`Esc`/**Cancel** backs out with nothing changed. Once confirmed, the
+selected areas disappear from the map and list right away (this part is
+immediate, not queued, since you need to see the empty space to draw into
+it) — then draw one or more replacement areas with **Add new area…**, same
+interaction as always. When you've drawn everything you want, `Enter`/
+**Finish** again to complete the replace (`Esc`/**Cancel** at this point
+restores the areas you selected and drops whatever you'd drawn so far,
+undoing the whole operation). You need at least one area selected and at
+least one replacement drawn to finish.
+
+Only the MapRoulette side is queued: the replacement areas show a teal
+dashed outline until you run **Process replace queue N** (in the
+MapRoulette panel), which deletes any MapRoulette tasks the replaced areas
+had and creates new tasks for the replacements, one group at a time. While
+a replace is pending, its replacement areas are off-limits to everything
+else (combining, splitting, editing, quick queue-delete) until they're
+processed. Finishing a replace (the local swap) is a single undoable
+action, same as split/combine/add — `Ctrl+Z` restores the original areas
+and removes the drawn replacements in one step.
+
 **Locked (already-resolved) tasks.** If a loaded task's `mr_taskStatus` is
 `Fixed` or `Already_Fixed`, it's shown grey on the map and treated as
 locked — there's nothing structurally left to do with a task someone's

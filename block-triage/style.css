@@ -123,7 +123,8 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 }
 
 #app.drawing-active #map,
-#app.combining-active #map {
+#app.combining-active #map,
+#app.replacing-active #map {
   cursor: crosshair;
 }
 
@@ -363,6 +364,12 @@ kbd {
   background: #f6ecf9;
 }
 
+.feature-row.replace-selected {
+  border-color: #00838f;
+  box-shadow: 0 0 0 1px #00838f inset;
+  background: #e0f4f6;
+}
+
 .feature-row.mr-delete-queued {
   border-color: #b71c1c;
   box-shadow: 0 0 0 1px #b71c1c inset;
@@ -385,6 +392,12 @@ kbd {
   border-color: #ef6c00;
   box-shadow: 0 0 0 1px #ef6c00 inset;
   background: #fff3e0;
+}
+
+.feature-row.mr-replace-queued {
+  border-color: #00838f;
+  box-shadow: 0 0 0 1px #00838f inset;
+  background: #e0f4f6;
 }
 
 .edit-vertex-icon {
