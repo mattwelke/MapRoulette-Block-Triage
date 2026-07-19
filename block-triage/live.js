@@ -84,22 +84,6 @@
   const MR_LOCK_POLL_JITTER_MS = 5000; // vary +/- up to 5s
   let mrLockPollTimer = null;
 
-  // Map-feature snapping while drawing a new area (see the "Map-feature
-  // snap points" section below). Geometry comes from OSM via the public
-  // Overpass API - roads/paths/cycle tracks (any highway=* way), streams
-  // and rivers (waterway=river/stream), and beaches (natural=beach) all
-  // count, per the feature request - these are the landmarks a mapper
-  // would actually recognize when describing a task's boundary. A fixed
-  // meter radius (not pixels) keeps snap behavior consistent regardless of
-  // zoom level.
-  const OVERPASS_URL = "https://overpass-api.de/api/interpreter";
-  const SNAP_MIN_ZOOM = 15; // below this, a viewport-sized bbox query would be too large/slow
-  const SNAP_RADIUS_METERS = 15;
-  // ~0.5m - matches the split knife's buffer radius (see doSplit): the small
-  // notch carved out of a drawn area's corner where it snaps to a real
-  // snap point, so the boundary doesn't sit exactly on top of it.
-  const SNAP_INSET_KM = 0.0005;
-
   /** @type {Map<string, {id:string, idx:number, feature:object, layer:L.Layer, area:number, compactness:number}>} */
   let entries = new Map();
   let orderedIds = []; // insertion order == original feature order
@@ -109,16 +93,12 @@
   let addedAreaCounter = 0;
   let undoStack = [];
   let redoStack = [];
-  /** @type {null | {type: "split"|"add", targetId?: string, points: [number,number][], snapped?: boolean[], snapStatus?: string, previewLayer: L.Layer|null, vertexMarkers: L.Layer[]}} */
+  /** @type {null | {type: "split"|"add", targetId?: string, points: [number,number][], previewLayer: L.Layer|null, vertexMarkers: L.Layer[]}} */
   let drawState = null;
   /** @type {null | {selectedIds: Set<string>}} */
   let combineState = null;
-  /** @type {null | {id: string, vertexMarkers: L.Marker[], previewLayer: L.Layer|null, snapStatus?: string}} */
+  /** @type {null | {id: string, vertexMarkers: L.Marker[], previewLayer: L.Layer|null}} */
   let editState = null;
-  /** @type {[number,number][]} known map-feature snap points ([lng,lat]) for the most recently fetched area */
-  let snapPoints = [];
-  let snapPointsBounds = null; // L.LatLngBounds already covered by snapPoints
-  let snapPointsFetchToken = 0; // guards a stale fetch resolving after a newer one superseded it
 
   const map = L.map("map", { preferCanvas: true }).setView([43.45, -79.68], 12);
   const osm = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
@@ -129,18 +109,21 @@
     "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
     { maxZoom: 20, attribution: "Tiles &copy; Esri" }
   );
+  const oakvilleAddresses = L.tileLayer(
+    "https://skfd.github.io/oakville-address-layer/tiles/raster/{z}/{x}/{y}.png",
+    { maxZoom: 20, attribution: "Oakville address layer by skfd" }
+  );
   // Purely visual: holds whatever the user loads via "Load reference layer...".
   // Never interactive, never part of entries/undo - just context to look at
   // (e.g. a local GeoJSON of building footprints) while editing the live
   // MapRoulette challenge.
   const referenceLayerGroup = L.layerGroup();
-  L.control.layers({ "OpenStreetMap": osm, "Aerial (Esri)": esriImagery }, { "Reference layer": referenceLayerGroup }).addTo(map);
-
-  // Small dots marking known map-feature snap points (roads/paths,
-  // streams/rivers, beaches) while drawing a new area (see the snap-points
-  // section below) - populated once a fetch resolves, cleared as soon as
-  // drawing ends.
-  const snapMarkersLayer = L.layerGroup().addTo(map);
+  L.control
+    .layers(
+      { "OpenStreetMap": osm, "Aerial (Esri)": esriImagery },
+      { "Oakville addresses (skfd)": oakvilleAddresses, "Reference layer": referenceLayerGroup }
+    )
+    .addTo(map);
 
   // Draggable handle used for each vertex while editing an area's boundary
   // (see "Edit boundary…") - a plain divIcon rather than Leaflet's default
@@ -1458,7 +1441,7 @@
 
   // --- Add new area ---
 
-  function doAddArea(points, snapped) {
+  function doAddArea(points) {
     const ring = points.slice();
     const first = ring[0];
     const last = ring[ring.length - 1];
@@ -1470,23 +1453,6 @@
     } catch (err) {
       alert("Could not create an area from those points: " + err.message);
       return;
-    }
-
-    // Corners snapped to a real map-feature point get a small notch
-    // carved out around the exact point (same idea as the split knife's
-    // buffer - see doSplit) so the boundary doesn't sit precisely on top of
-    // the intersection itself.
-    if (Array.isArray(snapped)) {
-      snapped.forEach((wasSnapped, i) => {
-        if (!wasSnapped) return;
-        try {
-          const notch = turf.buffer(turf.point(points[i]), SNAP_INSET_KM, { units: "kilometers" });
-          const trimmed = turf.difference(turf.featureCollection([feature, notch]));
-          if (trimmed && trimmed.geometry.type === "Polygon") feature = trimmed;
-        } catch (err) {
-          console.warn("Could not carve a snap-point inset", err);
-        }
-      });
     }
 
     const { area, compactness } = computeMetrics(feature);
@@ -1708,7 +1674,7 @@
 
     const ring = entry.feature.geometry.coordinates[0].slice(0, -1); // drop the closing duplicate point
     map.removeLayer(entry.layer);
-    editState = { id: entryId, vertexMarkers: [], previewLayer: null, snapStatus: null };
+    editState = { id: entryId, vertexMarkers: [], previewLayer: null };
     ring.forEach(([lng, lat]) => {
       const marker = L.marker([lat, lng], { draggable: true, icon: EDIT_VERTEX_ICON });
       marker.on("drag", onEditVertexDrag);
@@ -1720,14 +1686,10 @@
     appEl.classList.add("editing-active");
     drawStatusEl.hidden = false;
     updateEditStatusText();
-    kickSnapLookup(editState, updateEditStatusText, () => editState && editState.id === entryId);
   }
 
-  function onEditVertexDrag(e) {
+  function onEditVertexDrag() {
     if (!editState) return;
-    const marker = e.target;
-    const snapPoint = findNearbySnapPoint(marker.getLatLng());
-    if (snapPoint) marker.setLatLng(L.latLng(snapPoint[1], snapPoint[0]));
     redrawEditPreview();
   }
 
@@ -1751,9 +1713,7 @@
 
   function updateEditStatusText() {
     if (!editState) return;
-    let text = "Drag a point to move it, then Finish (Enter) when done.";
-    if (editState.snapStatus) text += ` ${editState.snapStatus}`;
-    drawStatusText.textContent = text;
+    drawStatusText.textContent = "Drag a point to move it, then Finish (Enter) when done.";
   }
 
   function finishEditBoundary() {
@@ -1776,20 +1736,6 @@
       alert("Could not update this boundary: " + err.message);
       return;
     }
-
-    // Same small-inset idea as doAddArea - any point currently sitting on a
-    // known snap point gets a little notch carved around it rather than
-    // leaving the boundary exactly on top of the intersection.
-    points.forEach((pt) => {
-      if (!findNearbySnapPoint(L.latLng(pt[1], pt[0]))) return;
-      try {
-        const notch = turf.buffer(turf.point(pt), SNAP_INSET_KM, { units: "kilometers" });
-        const trimmed = turf.difference(turf.featureCollection([feature, notch]));
-        if (trimmed && trimmed.geometry.type === "Polygon") feature = trimmed;
-      } catch (err) {
-        console.warn("Could not carve a snap-point inset", err);
-      }
-    });
 
     const entryId = entry.id;
     const beforeFeature = entry.feature;
@@ -1824,7 +1770,6 @@
     appEl.classList.remove("editing-active");
     drawStatusEl.hidden = true;
     editState = null;
-    snapMarkersLayer.clearLayers();
   }
 
   // Applies a (possibly brand new) feature geometry to an existing entry in
@@ -1870,207 +1815,6 @@
     panTo(entry);
   }
 
-  // --- Map-feature snap points (Add new area only) ---
-  //
-  // Fetches roads/paths/cycle tracks (any highway=* way), streams and
-  // rivers (waterway=river/stream), and beaches (natural=beach) within the
-  // current map view from the public Overpass API, and offers points on
-  // that combined network as click-snap targets while drawing a new area's
-  // outline - the kind of landmarks a mapper would actually use to describe
-  // a task's boundary. So corners land on one of those instead of wherever
-  // the mouse happened to be. Three kinds of points count:
-  //   - every node along a single feature's own geometry (a "shape point" -
-  //     where it bends, or either end of it)
-  //   - real junctions, where two features share an actual OSM node (this
-  //     is already covered by the point above, since a shared node shows up
-  //     in both features' own node lists)
-  //   - geometric crossings with no shared node at all - e.g. a road bridge
-  //     over a stream, or a tunnel under another road. These aren't
-  //     "connected" in OSM's own data model, but they're exactly the kind
-  //     of visually obvious landmark a mapper would still draw a boundary
-  //     through, so they're found separately via an actual line-intersection
-  //     test between every pair of fetched features.
-
-  function paddedBounds(bounds, factor) {
-    const ne = bounds.getNorthEast();
-    const sw = bounds.getSouthWest();
-    const latPad = (ne.lat - sw.lat) * factor;
-    const lngPad = (ne.lng - sw.lng) * factor;
-    return L.latLngBounds([sw.lat - latPad, sw.lng - lngPad], [ne.lat + latPad, ne.lng + lngPad]);
-  }
-
-  // Multiple sources can report essentially the same real-world point (e.g.
-  // where 3+ roads meet, or two ways sharing an endpoint) - collapse
-  // anything landing in the same ~0.5m grid cell. Grid-bucketed rather than
-  // a pairwise distance check since a dense urban network can easily produce
-  // tens of thousands of candidate points, where an O(n^2) comparison would
-  // be far too slow.
-  function dedupeNearbyPoints(points) {
-    const CELL_DEG = 0.000005; // ~0.5m in latitude degrees - close enough for longitude too at typical latitudes
-    const seenCells = new Set();
-    const kept = [];
-    points.forEach((p) => {
-      const key = `${Math.round(p[0] / CELL_DEG)},${Math.round(p[1] / CELL_DEG)}`;
-      if (!seenCells.has(key)) {
-        seenCells.add(key);
-        kept.push(p);
-      }
-    });
-    return kept;
-  }
-
-  // [minX, minY, maxX, maxY] - cheap enough to compute for every feature up
-  // front and compare pairwise, unlike the actual intersection test below.
-  function boundingBoxOf(coords) {
-    let minX = Infinity,
-      minY = Infinity,
-      maxX = -Infinity,
-      maxY = -Infinity;
-    coords.forEach(([x, y]) => {
-      if (x < minX) minX = x;
-      if (x > maxX) maxX = x;
-      if (y < minY) minY = y;
-      if (y > maxY) maxY = y;
-    });
-    return [minX, minY, maxX, maxY];
-  }
-
-  function boundingBoxesOverlap(a, b) {
-    return a[0] <= b[2] && b[0] <= a[2] && a[1] <= b[3] && b[1] <= a[3];
-  }
-
-  function computeSnapPoints(features) {
-    const points = [];
-    features.forEach((f) => {
-      f.geometry.coordinates.forEach((coord) => points.push(coord));
-    });
-    // turf.lineIntersect does real segment-by-segment geometry work, so a
-    // naive pairwise loop over every feature (regardless of whether the two
-    // are anywhere near each other) can freeze the page for a few seconds in
-    // a feature-dense view - the fetch itself is async, but this math isn't,
-    // and it runs on the same thread as everything else. Most feature pairs
-    // in a real area don't overlap at all, so a cheap bounding box check
-    // first skips the expensive test for nearly all of them.
-    const bboxes = features.map((f) => boundingBoxOf(f.geometry.coordinates));
-    for (let i = 0; i < features.length; i++) {
-      for (let j = i + 1; j < features.length; j++) {
-        if (!boundingBoxesOverlap(bboxes[i], bboxes[j])) continue;
-        let hit;
-        try {
-          hit = turf.lineIntersect(features[i], features[j]);
-        } catch (err) {
-          continue; // malformed geometry from the API - skip that pair
-        }
-        hit.features.forEach((f) => points.push(f.geometry.coordinates));
-      }
-    }
-    return dedupeNearbyPoints(points);
-  }
-
-  // Fetches (or reuses a cached fetch of) the map-feature network for the
-  // current view, refreshing snapPoints. Returns a small status
-  // object rather than throwing, since a failed/skipped lookup should just
-  // mean "no snapping this time", not interrupt drawing.
-  async function ensureSnapPointsForCurrentView() {
-    if (map.getZoom() < SNAP_MIN_ZOOM) {
-      snapPoints = [];
-      snapPointsBounds = null;
-      return { ok: false, reason: "zoom" };
-    }
-    const viewBounds = map.getBounds();
-    if (snapPointsBounds && snapPointsBounds.contains(viewBounds)) {
-      return { ok: true, reason: "cached", count: snapPoints.length };
-    }
-    const fetchBounds = paddedBounds(viewBounds, 0.5); // fetch a bit wider than the view so minor pans reuse the cache
-    const token = ++snapPointsFetchToken;
-    const bbox = `${fetchBounds.getSouth()},${fetchBounds.getWest()},${fetchBounds.getNorth()},${fetchBounds.getEast()}`;
-    const query =
-      `[out:json][timeout:25];` +
-      `(` +
-      `way["highway"](${bbox});` +
-      `way["waterway"~"^(river|stream)$"](${bbox});` +
-      `way["natural"="beach"](${bbox});` +
-      `);` +
-      `out geom;`;
-    const res = await fetch(`${OVERPASS_URL}?data=${encodeURIComponent(query)}`);
-    if (!res.ok) throw new Error(`Overpass API ${res.status}`);
-    const data = await res.json();
-    if (token !== snapPointsFetchToken) return { ok: false, reason: "stale" }; // superseded by a newer fetch
-
-    const features = (data.elements || [])
-      .filter((el) => el.type === "way" && Array.isArray(el.geometry) && el.geometry.length >= 2)
-      .map((el) => turf.lineString(el.geometry.map((pt) => [pt.lon, pt.lat])));
-    snapPoints = computeSnapPoints(features);
-    snapPointsBounds = fetchBounds;
-    return { ok: true, reason: "fetched", count: snapPoints.length };
-  }
-
-  // Kicks off (or reuses) the lookup for the current draw session and keeps
-  // drawState.snapStatus updated so updateDrawStatusText() can surface it.
-  function startSnapLookup() {
-    kickSnapLookup(drawState, updateDrawStatusText, () => drawState && drawState.type === "add");
-  }
-
-  // Shared by both "Add new area" drawing and "Edit boundary" dragging -
-  // each keeps its own snapStatus field and status-text renderer, but the
-  // lookup/caching/messaging logic underneath is identical.
-  function kickSnapLookup(stateObj, updateStatusText, isStillRelevant) {
-    if (map.getZoom() < SNAP_MIN_ZOOM) {
-      stateObj.snapStatus = "Zoom in further to enable snapping to nearby map features.";
-      updateStatusText();
-      return;
-    }
-    stateObj.snapStatus = "Looking up nearby map features for snapping…";
-    updateStatusText();
-    ensureSnapPointsForCurrentView()
-      .then((result) => {
-        if (!isStillRelevant()) return; // the mode ended/changed before this resolved
-        if (result.ok && result.reason !== "stale") {
-          stateObj.snapStatus = `Snapping enabled - ${result.count} nearby snap point${result.count === 1 ? "" : "s"} found (roads, paths, streams, rivers, beaches).`;
-          updateSnapMarkers();
-        } else if (result.reason === "zoom") {
-          stateObj.snapStatus = "Zoom in further to enable snapping to nearby map features.";
-        }
-        updateStatusText();
-      })
-      .catch((err) => {
-        if (!isStillRelevant()) return;
-        stateObj.snapStatus = "Map-feature lookup failed - proceeding without snapping (" + err.message + ").";
-        updateStatusText();
-      });
-  }
-
-  function updateSnapMarkers() {
-    snapMarkersLayer.clearLayers();
-    if (!(drawState && drawState.type === "add") && !editState) return;
-    snapPoints.forEach(([lng, lat]) => {
-      L.circleMarker([lat, lng], {
-        radius: 3,
-        color: "#00838f",
-        weight: 1,
-        fillColor: "#00838f",
-        fillOpacity: 0.6,
-        interactive: false,
-      }).addTo(snapMarkersLayer);
-    });
-  }
-
-  // Returns the nearest known snap point ([lng,lat]) within
-  // SNAP_RADIUS_METERS of latlng, or null if none is close enough.
-  function findNearbySnapPoint(latlng) {
-    if (!snapPoints.length) return null;
-    let best = null;
-    let bestDist = Infinity;
-    snapPoints.forEach((p) => {
-      const d = map.distance(latlng, L.latLng(p[1], p[0]));
-      if (d < bestDist) {
-        bestDist = d;
-        best = p;
-      }
-    });
-    return best && bestDist <= SNAP_RADIUS_METERS ? best : null;
-  }
-
   // --- Drawing controller (shared by split-line and add-new-area) ---
 
   function startDrawing(type, targetId) {
@@ -2078,7 +1822,7 @@
     if (combineState) cancelCombine();
     if (editState) cancelEditBoundary();
     map.closePopup();
-    drawState = { type, targetId, points: [], snapped: [], previewLayer: null, vertexMarkers: [] };
+    drawState = { type, targetId, points: [], previewLayer: null, vertexMarkers: [] };
     map.doubleClickZoom.disable();
     appEl.classList.add("drawing-active");
     drawStatusEl.hidden = false;
@@ -2086,34 +1830,19 @@
     map.on("click", onDrawMapClick);
     map.on("mousemove", onDrawMouseMove);
     map.on("dblclick", finishDrawing);
-    if (type === "add") {
-      addAreaBtn.textContent = "Cancel adding…";
-      startSnapLookup();
-    }
+    if (type === "add") addAreaBtn.textContent = "Cancel adding…";
   }
 
   function updateDrawStatusText() {
     if (!drawState) return;
     const need = drawState.type === "split" ? 2 : 3;
     const verb = drawState.type === "split" ? "Draw a line across the area to split it" : "Draw the new area's outline";
-    let text = `${verb} — click to add points (${drawState.points.length} so far, need at least ${need}).`;
-    if (drawState.type === "add" && drawState.snapStatus) text += ` ${drawState.snapStatus}`;
-    drawStatusText.textContent = text;
+    drawStatusText.textContent = `${verb} — click to add points (${drawState.points.length} so far, need at least ${need}).`;
   }
 
   function onDrawMapClick(e) {
     if (!drawState) return;
-    let latlng = e.latlng;
-    let snapped = false;
-    if (drawState.type === "add") {
-      const snapPoint = findNearbySnapPoint(latlng);
-      if (snapPoint) {
-        latlng = L.latLng(snapPoint[1], snapPoint[0]);
-        snapped = true;
-      }
-    }
-    drawState.points.push([latlng.lng, latlng.lat]);
-    drawState.snapped.push(snapped);
+    drawState.points.push([e.latlng.lng, e.latlng.lat]);
     redrawDrawPreview();
     updateDrawStatusText();
   }
@@ -2149,17 +1878,16 @@
       }).addTo(map);
     }
     drawState.vertexMarkers.forEach((m) => map.removeLayer(m));
-    drawState.vertexMarkers = drawState.points.map(([lng, lat], i) => {
-      const isSnapped = drawState.snapped && drawState.snapped[i];
-      return L.circleMarker([lat, lng], {
+    drawState.vertexMarkers = drawState.points.map(([lng, lat]) =>
+      L.circleMarker([lat, lng], {
         radius: 4,
-        color: isSnapped ? "#00838f" : "#333",
-        weight: isSnapped ? 2 : 1,
-        fillColor: isSnapped ? "#00acc1" : "#fff",
+        color: "#333",
+        weight: 1,
+        fillColor: "#fff",
         fillOpacity: 1,
         interactive: false,
-      }).addTo(map);
-    });
+      }).addTo(map)
+    );
   }
 
   function finishDrawing() {
@@ -2169,10 +1897,10 @@
       alert(`Add at least ${minPoints} points before finishing.`);
       return;
     }
-    const { type, targetId, points, snapped } = drawState;
+    const { type, targetId, points } = drawState;
     cancelDrawing();
     if (type === "split") doSplit(targetId, points);
-    else doAddArea(points, snapped);
+    else doAddArea(points);
   }
 
   function cancelDrawing() {
@@ -2187,7 +1915,6 @@
     drawStatusEl.hidden = true;
     addAreaBtn.textContent = "Add new area…";
     drawState = null;
-    snapMarkersLayer.clearLayers();
   }
 
   function recomputeFlagsAndRender() {
@@ -2304,9 +2031,7 @@
     openPopup(e);
   }
 
-  // Test-only hooks (see tests/road-snap.js) - there's no export/download
-  // path in this page to inspect resulting geometry or map state otherwise.
+  // Test-only hook (see tests/mr-edit-boundary.js) - there's no
+  // export/download path in this page to inspect resulting geometry otherwise.
   window.__blockTriageGetEntries = () => entries;
-  window.__blockTriageGetZoom = () => map.getZoom();
-  window.__blockTriageGetMapCenter = () => map.getCenter();
 })();
