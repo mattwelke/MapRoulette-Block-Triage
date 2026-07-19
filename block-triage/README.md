@@ -353,6 +353,27 @@ Some things worth knowing:
   header, so it's identifiable on MapRoulette's end as coming from this
   tool rather than the official site/app.
 
+## Tablets
+
+Both pages adapt at tablet widths (roughly 600–1366px, covering a portrait
+iPad mini through a landscape iPad Pro 12.9"):
+
+- **Bigger text.** Every piece of text in the app is sized in `rem`, so a
+  single bump to the root font size at that width scales everything at
+  once — sidebar, popups, buttons, the works.
+- **The per-area panel moves.** Tapping an area normally opens a Leaflet
+  popup anchored right where you tapped. On tablets, it instead opens in a
+  panel fixed to the right edge of the screen, vertically centered — the
+  idea being you can hold the tablet horizontally and reach it with your
+  right thumb without having to stretch across the map. It's the exact
+  same content (and the same buttons) either way; only where it appears
+  changes. Tapping the panel's own close button, or tapping empty map
+  background, closes it — same as a normal popup would.
+
+Outside that width range (phones, and regular desktop/laptop screens),
+both of these are no-ops — text stays at its normal size and tapping an
+area opens the usual Leaflet popup right at the tapped spot.
+
 ## Basemaps
 
 The layer switcher (top-right of the map) toggles between standard
@@ -447,3 +468,40 @@ MapRoulette's responses (a small, hand-built set of synthetic tasks with a
 predictable mix of locked/unlocked statuses - see `mrChallengeSampleTasks()`
 in `tests/support.js`), so they're deterministic and don't need real
 credentials.
+
+## Deploying
+
+The app has no real build step (it's vanilla HTML/JS/CSS with vendored
+dependencies), but Netlify still wants a build command and a publish
+directory, so `build.js` fills that role — it just copies everything the
+site needs (`index.html`, `local.html`/`local.js`, `live.html`/`live.js`,
+`style.css`, `vendor/`, `sample-data/`, `README.md`) into `dist/`, leaving
+dev-only files (`tests/`, `node_modules/`, `build.js`/`package.json`
+themselves) out:
+
+```sh
+npm run build   # writes dist/
+```
+
+**Netlify via GitHub (CI/CD):** this repo is a monorepo (this app lives in
+the `block-triage/` subdirectory), so a `netlify.toml` at the repo root
+tells Netlify everything it needs:
+
+```toml
+[build]
+  base = "block-triage"
+  command = "npm run build"
+  publish = "dist"
+```
+
+Connecting the GitHub repo to a new Netlify site should pick this up
+automatically — every push to the connected branch rebuilds and redeploys.
+If you'd rather configure it by hand in Netlify's UI instead of relying on
+the toml file, the equivalent settings are: **Base directory** =
+`block-triage`, **Build command** = `npm run build`, **Publish directory**
+= `dist` (relative to the base directory).
+
+Netlify's build environment also gets `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1`
+(set in `netlify.toml`) so its automatic `npm install` step doesn't waste
+time downloading Playwright's browser binaries — they're only needed for
+running the test suite locally, never for building or serving the site.

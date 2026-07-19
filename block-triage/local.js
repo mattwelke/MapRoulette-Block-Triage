@@ -134,6 +134,54 @@
   const referenceFileInput = document.getElementById("reference-file-input");
   const referenceFileNameEl = document.getElementById("reference-file-name");
   const clearReferenceBtn = document.getElementById("clear-reference-btn");
+  const tabletPanelEl = document.getElementById("tablet-panel");
+  const tabletPanelCloseBtn = document.getElementById("tablet-panel-close");
+  const tabletPanelContentEl = document.getElementById("tablet-panel-content");
+
+  // Matches the tablet range in style.css - on these viewports, an area's
+  // popup content is shown in the fixed #tablet-panel (right edge,
+  // vertically centered, thumb-reachable in landscape) instead of a
+  // Leaflet popup anchored to the tapped spot.
+  function isTabletViewport() {
+    return window.matchMedia("(min-width: 600px) and (max-width: 1366px)").matches;
+  }
+
+  function showTabletPanel(contentEl) {
+    tabletPanelContentEl.innerHTML = "";
+    tabletPanelContentEl.appendChild(contentEl);
+    tabletPanelEl.hidden = false;
+  }
+
+  function hideTabletPanel() {
+    tabletPanelEl.hidden = true;
+    tabletPanelContentEl.innerHTML = "";
+  }
+
+  // Every call site that used to open a Leaflet popup should go through
+  // this instead, so tablet viewports transparently get the fixed panel.
+  function presentPopup(entry, div) {
+    if (isTabletViewport()) {
+      showTabletPanel(div);
+      return;
+    }
+    const center = entry.layer.getBounds().getCenter();
+    L.popup().setLatLng(center).setContent(div).openOn(map);
+  }
+
+  // Closes whichever presentation (Leaflet popup or tablet panel) is
+  // currently showing - closePopup() is a harmless no-op if none is open.
+  function closeAnyPopup() {
+    map.closePopup();
+    hideTabletPanel();
+  }
+
+  tabletPanelCloseBtn.addEventListener("click", closeAnyPopup);
+  map.on("click", () => {
+    // Feature clicks stop propagation before reaching here (see
+    // attachLayer), so this only ever fires for a genuine click on empty
+    // map background.
+    if (isTabletViewport()) hideTabletPanel();
+  });
 
   areaThresholdInput.value = thresholds.area;
   compactnessThresholdInput.value = thresholds.compactness;
@@ -527,6 +575,10 @@
         toggleCombineSelection(entry.id);
         return;
       }
+      // Stop this from also reaching the map's own click handler (used to
+      // close the tablet panel on an empty-map tap) - it's already handled
+      // right here either way.
+      L.DomEvent.stopPropagation(e);
       selectFeature(entry.id);
       if (quickRemoveMode) {
         removeEntryWithUndo(entry.id);
@@ -568,16 +620,15 @@
       });
     });
     div.querySelector("[data-remove]").addEventListener("click", () => {
-      map.closePopup();
+      closeAnyPopup();
       removeEntryWithUndo(entry.id);
     });
     div.querySelector("[data-split]").addEventListener("click", () => {
-      map.closePopup();
+      closeAnyPopup();
       startDrawing("split", entry.id);
     });
 
-    const center = entry.layer.getBounds().getCenter();
-    L.popup().setLatLng(center).setContent(div).openOn(map);
+    presentPopup(entry, div);
   }
 
   function setStatus(id, status, opts) {
@@ -834,7 +885,7 @@
 
   function startCombine() {
     if (drawState) cancelDrawing();
-    map.closePopup();
+    closeAnyPopup();
     combineState = { selectedIds: new Set() };
     appEl.classList.add("combining-active");
     drawStatusEl.hidden = false;
@@ -970,7 +1021,7 @@
   function startDrawing(type, targetId) {
     if (drawState) cancelDrawing();
     if (combineState) cancelCombine();
-    map.closePopup();
+    closeAnyPopup();
     drawState = { type, targetId, points: [], previewLayer: null, vertexMarkers: [] };
     map.doubleClickZoom.disable();
     appEl.classList.add("drawing-active");

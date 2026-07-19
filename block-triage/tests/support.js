@@ -150,7 +150,7 @@ async function loadLiveChallenge(page, challengeId, apiKey) {
   await page.waitForTimeout(1500);
 }
 
-async function launch() {
+async function launch(opts) {
   const launchOptions = {
     args: ["--no-sandbox"],
   };
@@ -161,7 +161,8 @@ async function launch() {
     launchOptions.proxy = { server: process.env.PW_PROXY_SERVER };
   }
   const browser = await chromium.launch(launchOptions);
-  const page = await browser.newPage({ viewport: { width: 1400, height: 900 } });
+  const viewport = (opts && opts.viewport) || { width: 1400, height: 900 };
+  const page = await browser.newPage({ viewport });
   watchForPageErrors(page);
   return { browser, page };
 }

@@ -277,6 +277,55 @@
   const referenceFileInput = document.getElementById("reference-file-input");
   const referenceFileNameEl = document.getElementById("reference-file-name");
   const clearReferenceBtn = document.getElementById("clear-reference-btn");
+  const tabletPanelEl = document.getElementById("tablet-panel");
+  const tabletPanelCloseBtn = document.getElementById("tablet-panel-close");
+  const tabletPanelContentEl = document.getElementById("tablet-panel-content");
+
+  // Matches the tablet range in style.css - on these viewports, an area's
+  // popup content is shown in the fixed #tablet-panel (right edge,
+  // vertically centered, thumb-reachable in landscape) instead of a
+  // Leaflet popup anchored to the tapped spot.
+  function isTabletViewport() {
+    return window.matchMedia("(min-width: 600px) and (max-width: 1366px)").matches;
+  }
+
+  function showTabletPanel(contentEl) {
+    tabletPanelContentEl.innerHTML = "";
+    tabletPanelContentEl.appendChild(contentEl);
+    tabletPanelEl.hidden = false;
+  }
+
+  function hideTabletPanel() {
+    tabletPanelEl.hidden = true;
+    tabletPanelContentEl.innerHTML = "";
+  }
+
+  // Every call site that used to open a Leaflet popup should go through
+  // this instead, so tablet viewports transparently get the fixed panel.
+  function presentPopup(entry, div) {
+    if (isTabletViewport()) {
+      showTabletPanel(div);
+      return;
+    }
+    const center = entry.layer.getBounds().getCenter();
+    L.popup().setLatLng(center).setContent(div).openOn(map);
+  }
+
+  // Closes whichever presentation (Leaflet popup or tablet panel) is
+  // currently showing - closePopup() is a harmless no-op if none is open.
+  function closeAnyPopup() {
+    map.closePopup();
+    hideTabletPanel();
+  }
+
+  tabletPanelCloseBtn.addEventListener("click", closeAnyPopup);
+  map.on("click", () => {
+    // Feature clicks stop propagation before reaching here (see
+    // attachLayer), so this only ever fires for a genuine click on empty
+    // map background.
+    if (isTabletViewport()) hideTabletPanel();
+  });
+
   const mrApiKeyInput = document.getElementById("mr-api-key-input");
   const mrApiKeyClearBtn = document.getElementById("mr-api-key-clear-btn");
   const mrChallengeIdInput = document.getElementById("mr-challenge-id-input");
@@ -1249,6 +1298,10 @@
         L.DomEvent.stopPropagation(e);
         return;
       }
+      // Stop this from also reaching the map's own click handler (used to
+      // close the tablet panel on an empty-map tap) - it's already handled
+      // right here either way.
+      L.DomEvent.stopPropagation(e);
       selectFeature(entry.id);
       if (mrQuickQueueDeleteMode) {
         toggleQuickQueueDelete(entry);
@@ -1337,7 +1390,7 @@
             return;
           }
         }
-        map.closePopup();
+        closeAnyPopup();
         startDrawing("split", entry.id);
       });
     }
@@ -1350,14 +1403,13 @@
     const editBoundaryBtn = div.querySelector("[data-edit-boundary]");
     if (editBoundaryBtn) {
       editBoundaryBtn.addEventListener("click", () => {
-        map.closePopup();
+        closeAnyPopup();
         startEditBoundary(entry.id);
       });
     }
 
     if (lockReason || splitPending || replacePending) {
-      const center = entry.layer.getBounds().getCenter();
-      L.popup().setLatLng(center).setContent(div).openOn(map);
+      presentPopup(entry, div);
       return;
     }
 
@@ -1430,8 +1482,7 @@
       });
     }
 
-    const center = entry.layer.getBounds().getCenter();
-    L.popup().setLatLng(center).setContent(div).openOn(map);
+    presentPopup(entry, div);
   }
 
   function undo() {
@@ -1616,7 +1667,7 @@
     updateUndoRedoButtons();
     updateStats();
     renderList();
-    map.closePopup();
+    closeAnyPopup();
   }
 
   function undoDropSplitPiece(action) {
@@ -1824,7 +1875,7 @@
     if (drawState) cancelDrawing();
     if (editState) cancelEditBoundary();
     if (replaceState) cancelReplace();
-    map.closePopup();
+    closeAnyPopup();
     combineState = { selectedIds: new Set() };
     appEl.classList.add("combining-active");
     drawStatusEl.hidden = false;
@@ -1991,7 +2042,7 @@
     if (drawState) cancelDrawing();
     if (combineState) cancelCombine();
     if (editState) cancelEditBoundary();
-    map.closePopup();
+    closeAnyPopup();
     replaceState = { phase: "selecting", selectedIds: new Set(), originalSnapshots: [], newSnapshots: [] };
     appEl.classList.add("replacing-active");
     drawStatusEl.hidden = false;
@@ -2258,7 +2309,7 @@
     if (drawState) cancelDrawing();
     if (combineState) cancelCombine();
     if (editState) cancelEditBoundary();
-    map.closePopup();
+    closeAnyPopup();
 
     const ring = entry.feature.geometry.coordinates[0].slice(0, -1); // drop the closing duplicate point
     map.removeLayer(entry.layer);
@@ -2408,7 +2459,7 @@
     if (drawState) cancelDrawing();
     if (combineState) cancelCombine();
     if (editState) cancelEditBoundary();
-    map.closePopup();
+    closeAnyPopup();
     drawState = { type, targetId, points: [], previewLayer: null, vertexMarkers: [] };
     map.doubleClickZoom.disable();
     appEl.classList.add("drawing-active");

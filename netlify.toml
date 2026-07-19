@@ -1,0 +1,10 @@
+[build]
+  base = "block-triage"
+  command = "npm run build"
+  publish = "dist"
+
+[build.environment]
+  # This repo's package.json only carries the Playwright test suite as a
+  # devDependency (build.js itself has no dependencies) - skip Playwright's
+  # postinstall browser download so Netlify's `npm install` stays fast.
+  PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD = "1"

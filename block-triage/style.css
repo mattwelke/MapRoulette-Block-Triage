@@ -20,6 +20,15 @@ html, body {
   font-size: 14px;
 }
 
+/* Tablet range (portrait iPad mini through landscape iPad Pro 12.9") - every
+   text size elsewhere in this file is set in rem, so bumping the root size
+   here scales all of it proportionally at once. */
+@media (min-width: 600px) and (max-width: 1366px) {
+  html, body {
+    font-size: 17px;
+  }
+}
+
 #app {
   height: 100vh;
   display: flex;
@@ -448,4 +457,60 @@ kbd {
 .popup-actions button {
   padding: 0.25rem 0.5rem;
   font-size: 0.8rem;
+}
+
+/* On tablets, the per-area panel (the same content a Leaflet popup would
+   show) is pinned to the right edge, vertically centered, instead of
+   anchored to wherever the tapped area happens to be - reachable with a
+   right thumb while holding the tablet in landscape. A Leaflet popup can't
+   just be forced into this position with CSS: Leaflet applies its own
+   transform to the map panes for panning, and any transformed ancestor
+   becomes the containing block for a `position: fixed` descendant, which
+   would make the popup drift with the map instead of staying put. This
+   panel lives outside the map's DOM entirely, so it isn't affected.
+   Hidden outside the tablet range (see the media query below) even if JS
+   forgets to set [hidden]. */
+.tablet-panel {
+  display: none;
+  position: fixed;
+  top: 50%;
+  right: 12px;
+  transform: translateY(-50%);
+  z-index: 2000;
+  width: 300px;
+  max-width: calc(100vw - 24px);
+  max-height: 70vh;
+  overflow-y: auto;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+  padding: 0.75rem 1rem;
+}
+
+.tablet-panel-close {
+  position: absolute;
+  top: 0.35rem;
+  right: 0.35rem;
+  border: none;
+  background: none;
+  font-size: 1.1rem;
+  line-height: 1;
+  padding: 0.25rem;
+  cursor: pointer;
+  color: #777;
+}
+
+.tablet-panel-close:hover {
+  color: #222;
+}
+
+.tablet-panel-content {
+  margin-top: 1.25rem;
+}
+
+@media (min-width: 600px) and (max-width: 1366px) {
+  .tablet-panel:not([hidden]) {
+    display: block;
+  }
 }
