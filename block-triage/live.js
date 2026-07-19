@@ -98,9 +98,9 @@
   /** @type {null | {selectedIds: Set<string>}} */
   let combineState = null;
   /** @type {[number,number][]} known road/path intersection points ([lng,lat]) for the most recently fetched area */
-  let roadIntersections = [];
-  let roadIntersectionsBounds = null; // L.LatLngBounds already covered by roadIntersections
-  let roadIntersectionsFetchToken = 0; // guards a stale fetch resolving after a newer one superseded it
+  let roadSnapPoints = [];
+  let roadSnapPointsBounds = null; // L.LatLngBounds already covered by roadSnapPoints
+  let roadSnapPointsFetchToken = 0; // guards a stale fetch resolving after a newer one superseded it
 
   const map = L.map("map", { preferCanvas: true }).setView([43.45, -79.68], 12);
   const osm = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
@@ -118,7 +118,7 @@
   const referenceLayerGroup = L.layerGroup();
   L.control.layers({ "OpenStreetMap": osm, "Aerial (Esri)": esriImagery }, { "Reference layer": referenceLayerGroup }).addTo(map);
 
-  // Small dots marking known road/path intersections while drawing a new
+  // Small dots marking known road/path snap points (intersections + bends) while drawing a new
   // area (see the road-snapping section below) - populated once a fetch
   // resolves, cleared as soon as drawing ends.
   const roadSnapMarkersLayer = L.layerGroup().addTo(map);
@@ -1427,14 +1427,16 @@
     panTo(entries.get(action.newSnapshot.id));
   }
 
-  // --- Road/path intersection snapping (Add new area only) ---
+  // --- Road/path snap points (Add new area only) ---
   //
   // Fetches every OSM way tagged highway=* (this deliberately covers roads of
   // any kind, plus paths/cycle tracks - anything using the highway=* schema)
-  // within the current map view from the public Overpass API, finds where
-  // any two of them cross, and offers those crossing points as click-snap
-  // targets while drawing a new area's outline - so corners land exactly on
-  // a real intersection instead of wherever the mouse happened to be.
+  // within the current map view from the public Overpass API, and offers two
+  // kinds of points on that network as click-snap targets while drawing a
+  // new area's outline: where any two ways cross, and every vertex along a
+  // single way's own geometry (a "shape point" - where a road bends without
+  // crossing anything else). So corners land exactly on a real intersection
+  // or bend instead of wherever the mouse happened to be.
 
   function paddedBounds(bounds, factor) {
     const ne = bounds.getNorthEast();
@@ -1444,19 +1446,27 @@
     return L.latLngBounds([sw.lat - latPad, sw.lng - lngPad], [ne.lat + latPad, ne.lng + lngPad]);
   }
 
-  // Multiple way-pairs can report essentially the same real-world
-  // intersection (e.g. where 3+ roads meet) - collapse anything within
-  // ~0.5m of a point already kept.
+  // Multiple sources can report essentially the same real-world point (e.g.
+  // where 3+ roads meet, or two ways sharing an endpoint) - collapse
+  // anything landing in the same ~0.5m grid cell. Grid-bucketed rather than
+  // a pairwise distance check since a dense urban network can easily produce
+  // tens of thousands of candidate points, where an O(n^2) comparison would
+  // be far too slow.
   function dedupeNearbyPoints(points) {
+    const CELL_DEG = 0.000005; // ~0.5m in latitude degrees - close enough for longitude too at typical latitudes
+    const seenCells = new Set();
     const kept = [];
     points.forEach((p) => {
-      const isDupe = kept.some((q) => turf.distance(turf.point(p), turf.point(q), { units: "kilometers" }) < 0.0005);
-      if (!isDupe) kept.push(p);
+      const key = `${Math.round(p[0] / CELL_DEG)},${Math.round(p[1] / CELL_DEG)}`;
+      if (!seenCells.has(key)) {
+        seenCells.add(key);
+        kept.push(p);
+      }
     });
     return kept;
   }
 
-  function computeWayIntersections(ways) {
+  function computeRoadSnapPoints(ways) {
     const points = [];
     for (let i = 0; i < ways.length; i++) {
       for (let j = i + 1; j < ways.length; j++) {
@@ -1469,25 +1479,28 @@
         hit.features.forEach((f) => points.push(f.geometry.coordinates));
       }
     }
+    ways.forEach((way) => {
+      way.geometry.coordinates.forEach((coord) => points.push(coord));
+    });
     return dedupeNearbyPoints(points);
   }
 
   // Fetches (or reuses a cached fetch of) the road/path network for the
-  // current view, refreshing roadIntersections. Returns a small status
+  // current view, refreshing roadSnapPoints. Returns a small status
   // object rather than throwing, since a failed/skipped lookup should just
   // mean "no snapping this time", not interrupt drawing.
   async function ensureRoadIntersectionsForCurrentView() {
     if (map.getZoom() < ROAD_SNAP_MIN_ZOOM) {
-      roadIntersections = [];
-      roadIntersectionsBounds = null;
+      roadSnapPoints = [];
+      roadSnapPointsBounds = null;
       return { ok: false, reason: "zoom" };
     }
     const viewBounds = map.getBounds();
-    if (roadIntersectionsBounds && roadIntersectionsBounds.contains(viewBounds)) {
-      return { ok: true, reason: "cached", count: roadIntersections.length };
+    if (roadSnapPointsBounds && roadSnapPointsBounds.contains(viewBounds)) {
+      return { ok: true, reason: "cached", count: roadSnapPoints.length };
     }
     const fetchBounds = paddedBounds(viewBounds, 0.5); // fetch a bit wider than the view so minor pans reuse the cache
-    const token = ++roadIntersectionsFetchToken;
+    const token = ++roadSnapPointsFetchToken;
     const query =
       `[out:json][timeout:25];` +
       `way["highway"](${fetchBounds.getSouth()},${fetchBounds.getWest()},${fetchBounds.getNorth()},${fetchBounds.getEast()});` +
@@ -1495,34 +1508,34 @@
     const res = await fetch(`${OVERPASS_URL}?data=${encodeURIComponent(query)}`);
     if (!res.ok) throw new Error(`Overpass API ${res.status}`);
     const data = await res.json();
-    if (token !== roadIntersectionsFetchToken) return { ok: false, reason: "stale" }; // superseded by a newer fetch
+    if (token !== roadSnapPointsFetchToken) return { ok: false, reason: "stale" }; // superseded by a newer fetch
 
     const ways = (data.elements || [])
       .filter((el) => el.type === "way" && Array.isArray(el.geometry) && el.geometry.length >= 2)
       .map((el) => turf.lineString(el.geometry.map((pt) => [pt.lon, pt.lat])));
-    roadIntersections = computeWayIntersections(ways);
-    roadIntersectionsBounds = fetchBounds;
-    return { ok: true, reason: "fetched", count: roadIntersections.length };
+    roadSnapPoints = computeRoadSnapPoints(ways);
+    roadSnapPointsBounds = fetchBounds;
+    return { ok: true, reason: "fetched", count: roadSnapPoints.length };
   }
 
   // Kicks off (or reuses) the lookup for the current draw session and keeps
   // drawState.snapStatus updated so updateDrawStatusText() can surface it.
   function startRoadSnapLookup() {
     if (map.getZoom() < ROAD_SNAP_MIN_ZOOM) {
-      drawState.snapStatus = "Zoom in further to enable snapping to road/path intersections.";
+      drawState.snapStatus = "Zoom in further to enable snapping to road/path intersections and bends.";
       updateDrawStatusText();
       return;
     }
-    drawState.snapStatus = "Looking up nearby road/path intersections for snapping…";
+    drawState.snapStatus = "Looking up nearby road/path intersections and bends for snapping…";
     updateDrawStatusText();
     ensureRoadIntersectionsForCurrentView()
       .then((result) => {
         if (!drawState || drawState.type !== "add") return; // drawing ended/changed before this resolved
         if (result.ok && result.reason !== "stale") {
-          drawState.snapStatus = `Snapping enabled - ${result.count} nearby intersection${result.count === 1 ? "" : "s"} found.`;
+          drawState.snapStatus = `Snapping enabled - ${result.count} nearby snap point${result.count === 1 ? "" : "s"} found (intersections + bends).`;
           updateRoadSnapMarkers();
         } else if (result.reason === "zoom") {
-          drawState.snapStatus = "Zoom in further to enable snapping to road/path intersections.";
+          drawState.snapStatus = "Zoom in further to enable snapping to road/path intersections and bends.";
         }
         updateDrawStatusText();
       })
@@ -1536,7 +1549,7 @@
   function updateRoadSnapMarkers() {
     roadSnapMarkersLayer.clearLayers();
     if (!drawState || drawState.type !== "add") return;
-    roadIntersections.forEach(([lng, lat]) => {
+    roadSnapPoints.forEach(([lng, lat]) => {
       L.circleMarker([lat, lng], {
         radius: 3,
         color: "#00838f",
@@ -1548,13 +1561,13 @@
     });
   }
 
-  // Returns the nearest known intersection point ([lng,lat]) within
+  // Returns the nearest known snap point ([lng,lat]) within
   // ROAD_SNAP_RADIUS_METERS of latlng, or null if none is close enough.
   function findNearbySnapPoint(latlng) {
-    if (!roadIntersections.length) return null;
+    if (!roadSnapPoints.length) return null;
     let best = null;
     let bestDist = Infinity;
-    roadIntersections.forEach((p) => {
+    roadSnapPoints.forEach((p) => {
       const d = map.distance(latlng, L.latLng(p[1], p[0]));
       if (d < bestDist) {
         bestDist = d;

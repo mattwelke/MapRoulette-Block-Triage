@@ -157,3 +157,110 @@ async function runBody(page) {
 
   assertNoPageErrors(page);
 }
+
+// A single way with an L-shaped bend (no other way, so nothing for
+// turf.lineIntersect to find) - the bend point itself should still be
+// offered as a snap point (a "shape point" / direction-change node).
+const BEND_LAT = 43.45;
+const BEND_LON = -79.68;
+
+function overpassResponseWithBend() {
+  return {
+    elements: [
+      {
+        type: "way",
+        id: 3,
+        geometry: [
+          { lat: BEND_LAT, lon: BEND_LON - 0.005 },
+          { lat: BEND_LAT, lon: BEND_LON }, // the bend
+          { lat: BEND_LAT + 0.005, lon: BEND_LON },
+        ],
+      },
+    ],
+  };
+}
+
+runTest("road-snap: also snaps to a road's own bend points, not just crossings between roads", async () => {
+  const { browser, page } = await launch();
+  try {
+    await runBendBody(page);
+  } finally {
+    await browser.close();
+  }
+});
+
+async function runBendBody(page) {
+  page.on("dialog", async (dialog) => await dialog.accept());
+
+  await page.route("https://overpass-api.de/api/interpreter**", async (route) => {
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(overpassResponseWithBend()) });
+  });
+
+  const CHALLENGE_ID_2 = 44002;
+  await routeMrChallenge(page, CHALLENGE_ID_2, []);
+
+  await page.goto(liveUrl());
+  await page.waitForTimeout(300);
+  await loadLiveChallenge(page, CHALLENGE_ID_2, "fake-test-key");
+
+  for (let i = 0; i < 4; i++) {
+    await page.click(".leaflet-control-zoom-in");
+    await page.waitForTimeout(400);
+  }
+  assert((await page.evaluate(() => window.__blockTriageGetZoom())) >= 15, "expected the zoom-in loop to reach the snap threshold");
+
+  await page.click("#add-area-btn");
+  await page.waitForTimeout(1000);
+  assert(
+    (await page.$eval("#draw-status-text", (el) => el.textContent)).includes("Snapping enabled"),
+    "draw-status should confirm snapping is enabled once the fetch resolves"
+  );
+
+  const mapBox = await page.$eval("#map", (el) => {
+    const r = el.getBoundingClientRect();
+    return { x: r.x, y: r.y, width: r.width, height: r.height };
+  });
+  const cx = mapBox.x + mapBox.width / 2;
+  const cy = mapBox.y + mapBox.height / 2;
+
+  await page.mouse.click(cx, cy); // right at the bend
+  await page.waitForTimeout(150);
+  await page.mouse.click(cx + 200, cy + 40);
+  await page.waitForTimeout(150);
+  await page.mouse.click(cx + 100, cy + 220);
+  await page.waitForTimeout(150);
+  await page.keyboard.press("Enter");
+  await page.waitForTimeout(500);
+
+  const result = await page.evaluate(
+    ({ lat, lon }) => {
+      const entries = window.__blockTriageGetEntries();
+      let found = null;
+      entries.forEach((e) => {
+        if (String(e.idx).startsWith("new-")) found = e;
+      });
+      if (!found) return { ok: false };
+      const ring = found.feature.geometry.coordinates[0];
+      const bendPt = turf.point([lon, lat]);
+      let minDistKm = Infinity;
+      ring.forEach((coord) => {
+        const d = turf.distance(turf.point(coord), bendPt, { units: "kilometers" });
+        if (d < minDistKm) minDistKm = d;
+      });
+      return { ok: true, ringLength: ring.length, minDistKm };
+    },
+    { lat: BEND_LAT, lon: BEND_LON }
+  );
+
+  assert(result.ok, "expected a freshly-drawn area to exist after finishing the draw");
+  assert(
+    result.ringLength > 6,
+    `expected the snapped corner's buffer-difference to add ring vertices (a carved notch), got ring length ${result.ringLength}`
+  );
+  assert(
+    result.minDistKm > 0.0002 && result.minDistKm < 0.002,
+    `expected the closest ring vertex to sit near (but not exactly on) the bend point, got ${result.minDistKm}km`
+  );
+
+  assertNoPageErrors(page);
+}
