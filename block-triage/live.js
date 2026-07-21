@@ -362,6 +362,8 @@
   const mrProcessAllStatusEl = document.getElementById("mr-process-all-status");
   const mrQuickQueueCheckbox = document.getElementById("mr-quick-queue-checkbox");
   const mrMaxConcurrentInput = document.getElementById("mr-max-concurrent-input");
+  const miniProcessAllBtn = document.getElementById("mini-process-all-btn");
+  const chromeToggleBtn = document.getElementById("chrome-toggle-btn");
 
   mrApiKeyInput.value = mrApiKey;
   mrChallengeIdInput.value = mrChallengeId;
@@ -378,6 +380,7 @@
   mrSplitQueueBtn.addEventListener("click", processSplitQueue);
   mrReplaceQueueBtn.addEventListener("click", processReplaceQueue);
   mrProcessAllBtn.addEventListener("click", processAllQueues);
+  miniProcessAllBtn.addEventListener("click", processAllQueues);
 
   mrApiKeyInput.addEventListener("change", () => {
     mrApiKey = mrApiKeyInput.value.trim();
@@ -405,6 +408,25 @@
     mrQuickQueueDeleteMode = mrQuickQueueCheckbox.checked;
     localStorage.setItem("block-triage:mrQuickQueueDeleteMode", String(mrQuickQueueDeleteMode));
     appEl.classList.toggle("mr-quick-queue-active", mrQuickQueueDeleteMode);
+  });
+
+  // Collapses the sidebar and most of the topbar down to just the toggle
+  // itself plus three persistent icon-only actions (see style.css's
+  // .chrome-minimized rules), freeing the full width for the map. Persisted
+  // like every other UI preference here, so it survives a reload.
+  let chromeMinimized = localStorage.getItem("block-triage:chromeMinimized") === "true";
+  function applyChromeMinimized() {
+    appEl.classList.toggle("chrome-minimized", chromeMinimized);
+    chromeToggleBtn.textContent = chromeMinimized ? "Show UI" : "Minimize";
+    chromeToggleBtn.title = chromeMinimized
+      ? "Show the sidebar and toolbar again"
+      : "Hide the sidebar and most of the toolbar for more map space";
+  }
+  applyChromeMinimized();
+  chromeToggleBtn.addEventListener("click", () => {
+    chromeMinimized = !chromeMinimized;
+    localStorage.setItem("block-triage:chromeMinimized", String(chromeMinimized));
+    applyChromeMinimized();
   });
 
   mrMaxConcurrentInput.value = mrMaxConcurrent;
@@ -564,6 +586,8 @@
     const total = mrDeleteQueue.size + mrAddQueue.size + mrEditQueue.size + splitQueue.size + replaceQueue.size;
     mrProcessAllBtn.textContent = `Process all pending (${total})`;
     mrProcessAllBtn.disabled = total === 0;
+    miniProcessAllBtn.title = `Process all pending (${total})`;
+    miniProcessAllBtn.disabled = total === 0;
   }
 
   // Runs every queue's own processing function in turn - each already
@@ -571,6 +595,7 @@
   // just a convenience that saves clicking each queue's button separately.
   async function processAllQueues() {
     mrProcessAllBtn.disabled = true;
+    miniProcessAllBtn.disabled = true;
     mrProcessAllStatusEl.textContent = "Processing every queue below…";
     await processMrAddQueue();
     await processMrDeleteQueue();

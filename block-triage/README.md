@@ -345,6 +345,18 @@ actually linked to a MapRoulette task, and refuses locked areas with the
 same explanatory alert as everywhere else. Nothing is actually deleted
 until you run **Process delete queue**.
 
+**Minimize** (top-right of the topbar) collapses the sidebar and most of
+the topbar, giving the map the full width - useful once you know the tool
+well enough not to need the labels, or just want to see more of the map on
+a smaller screen. Three things stay reachable as small icon-only square
+buttons: **Add new area** (&#10133;), **Combine areas** (&#129513;), and
+**Process all pending** (&#128260;, wherever it sits in the sidebar
+normally) - they're the same buttons, same click handlers, just visually
+shrunk; their tooltip still shows the full label on hover. Everything
+else (Undo/Redo, Replace areas, the reference-layer controls, the theme
+toggle, the whole sidebar) is hidden until you click **Show UI** to bring
+it back. The choice persists across reloads.
+
 Some things worth knowing:
 - **Local undo/redo never touches MapRoulette.** Once a task is deleted
   or created remotely, that's final — Ctrl+Z only rewinds what you see

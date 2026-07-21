@@ -615,3 +615,53 @@ kbd {
     display: block;
   }
 }
+
+/* Live mode only: #chrome-toggle-btn collapses the sidebar and most of the
+   topbar down to just itself plus three persistent, icon-only actions
+   (add area, combine areas, process all pending), freeing the full width
+   for the map. The icon glyph comes from data-icon via ::before rather
+   than the button's own text, since several of these buttons (add/combine)
+   have their text rewritten by JS while active (e.g. "Cancel adding…") -
+   ::before is untouched by that, so the icon doesn't need to track it. */
+#app.chrome-minimized #sidebar {
+  display: none;
+}
+
+#app.chrome-minimized #back-link,
+#app.chrome-minimized #topbar h1,
+#app.chrome-minimized #undo-btn,
+#app.chrome-minimized #redo-btn,
+#app.chrome-minimized #replace-area-btn,
+#app.chrome-minimized #reference-controls,
+#app.chrome-minimized #theme-toggle-btn {
+  display: none;
+}
+
+#mini-process-all-btn {
+  display: none;
+}
+
+#app.chrome-minimized .minimizable-action {
+  display: inline-flex;
+  width: 2.3rem;
+  height: 2.3rem;
+  padding: 0;
+  font-size: 0;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+#app.chrome-minimized .minimizable-action::before {
+  content: attr(data-icon);
+  font-size: 1.15rem;
+}
+
+/* #draw-status's default position leaves room for the (now hidden)
+   340px-wide sidebar - without this it'd float in from an empty gap on
+   the left instead of centering across the full map width. */
+#app.chrome-minimized #draw-status {
+  left: 12px;
+  max-width: calc(100% - 24px);
+}
