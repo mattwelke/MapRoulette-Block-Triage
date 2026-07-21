@@ -18,7 +18,6 @@ const INCLUDE = [
   "live.html",
   "live.js",
   "style.css",
-  "theme.js",
   "manifest.json",
   "icons",
   "README.md",

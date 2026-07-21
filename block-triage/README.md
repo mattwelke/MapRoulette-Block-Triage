@@ -345,20 +345,6 @@ actually linked to a MapRoulette task, and refuses locked areas with the
 same explanatory alert as everywhere else. Nothing is actually deleted
 until you run **Process delete queue**.
 
-**Minimize** (top-right of the topbar) hides the topbar and sidebar
-entirely, giving the map the full window - useful once you know the tool
-well enough not to need the labels, or just want to see more of the map on
-a smaller screen. Four things stay reachable as small icon-only square
-buttons, floating directly over the bottom-left of the map (clear of
-Leaflet's own zoom control, layer switcher, and attribution, which sit in
-the other three corners) rather than occupying a bar of their own: **Add
-new area** (&#10133;), **Combine areas** (&#129513;), **Process all
-pending** (&#128260;), and an **expand** button (&#9974;) to bring
-everything back. The first three just forward their click to the real
-button elsewhere on the page - same logic, same disabled state - so
-there's nothing duplicated to keep in sync beyond that. The choice
-persists across reloads.
-
 Some things worth knowing:
 - **Local undo/redo never touches MapRoulette.** Once a task is deleted
   or created remotely, that's final — Ctrl+Z only rewinds what you see
@@ -398,26 +384,6 @@ iPad mini through a landscape iPad Pro 12.9"):
 Outside that width range (phones, and regular desktop/laptop screens),
 both of these are no-ops — text stays at its normal size and tapping an
 area opens the usual Leaflet popup right at the tapped spot.
-
-## Theme (light/dark)
-
-All three pages (`index.html`, `local.html`, `live.html`) follow your
-device's dark mode setting automatically, and each has a **Theme** button
-(top-right) to override it. Three states, cycled on click:
-- **Auto** (the default, until you choose otherwise) — follows
-  `prefers-color-scheme`, so it switches automatically if your device's
-  theme does.
-- **Light** / **Dark** — forces that theme regardless of the device
-  setting.
-
-The choice is stored in `localStorage` and applies across all three
-pages. `theme.js` (one small shared script, loaded by all three) applies
-it immediately, before the page paints, so there's no flash of the wrong
-theme on load.
-
-This only recolors this app's own UI - the topbar, sidebar, feature list,
-and popups. The map itself (tiles, and Leaflet's own zoom/layer controls)
-isn't affected either way, so it looks the same regardless of theme.
 
 ## Basemaps
 

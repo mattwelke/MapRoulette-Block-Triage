@@ -8,7 +8,6 @@
 <meta name="theme-color" content="#3388ff">
 <link rel="icon" href="icons/icon-192.png">
 <link rel="apple-touch-icon" href="icons/icon-192.png">
-<script src="theme.js"></script>
 <link rel="stylesheet" href="vendor/leaflet.css">
 <link rel="stylesheet" href="style.css">
 </head>
@@ -34,24 +33,9 @@
           <button id="clear-reference-btn" disabled title="Remove the reference layer">Clear</button>
         </span>
       </div>
-      <button id="theme-toggle-btn" data-theme-toggle>Theme</button>
-      <button id="chrome-toggle-btn" title="Hide the sidebar and most of the toolbar for more map space">Minimize</button>
     </header>
 
     <div id="body">
-      <!-- Only shown when minimized (see #app.chrome-minimized in style.css)
-           - floats over the map itself rather than occupying its own bar,
-           so hiding the topbar/sidebar actually reclaims that space. Each
-           button just forwards its click to the real (currently hidden)
-           button elsewhere on the page, reusing all of their existing
-           logic/state rather than duplicating it. -->
-      <div id="mini-toolbar">
-        <button id="mini-add-area-btn" title="Add new area…">&#10133;</button>
-        <button id="mini-combine-area-btn" title="Combine areas…">&#129513;</button>
-        <button id="mini-process-all-btn" title="Process all pending">&#128260;</button>
-        <button id="mini-expand-btn" title="Show the sidebar and toolbar again">&#9974;</button>
-      </div>
-
       <div id="draw-status" hidden>
         <span id="draw-status-text"></span>
         <button id="draw-finish-btn">Finish (Enter)</button>

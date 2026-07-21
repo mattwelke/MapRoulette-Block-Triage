@@ -8,34 +8,7 @@
 <meta name="theme-color" content="#3388ff">
 <link rel="icon" href="icons/icon-192.png">
 <link rel="apple-touch-icon" href="icons/icon-192.png">
-<script src="theme.js"></script>
 <style>
-  :root {
-    --bg-page: #fafafa;
-    --bg-panel: #ffffff;
-    --bg-row-hover: #f0f4ff;
-    --text: #1a1a1a;
-    --text-muted: #666;
-    --border: #ccc;
-  }
-  @media (prefers-color-scheme: dark) {
-    :root:not([data-theme="light"]) {
-      --bg-page: #121212;
-      --bg-panel: #1e1e1e;
-      --bg-row-hover: #24304a;
-      --text: #e8e8e8;
-      --text-muted: #a0a0a0;
-      --border: #3a3a3a;
-    }
-  }
-  :root[data-theme="dark"] {
-    --bg-page: #121212;
-    --bg-panel: #1e1e1e;
-    --bg-row-hover: #24304a;
-    --text: #e8e8e8;
-    --text-muted: #a0a0a0;
-    --border: #3a3a3a;
-  }
   * { box-sizing: border-box; }
   html, body {
     height: 100%;
@@ -44,8 +17,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    background: var(--bg-page);
-    color: var(--text);
+    background: #fafafa;
   }
   main {
     width: 100%;
@@ -58,7 +30,7 @@
     margin: 0 0 0.3rem;
   }
   p.sub {
-    color: var(--text-muted);
+    color: #666;
     font-size: 0.9rem;
     margin: 0 0 1.5rem;
   }
@@ -67,15 +39,15 @@
     width: 100%;
     text-decoration: none;
     color: inherit;
-    background: var(--bg-panel);
-    border: 1px solid var(--border);
+    background: #fff;
+    border: 1px solid #ccc;
     border-radius: 10px;
     padding: 1rem 1.2rem;
     margin-bottom: 1rem;
     text-align: left;
     cursor: pointer;
   }
-  .choice:active { background: var(--bg-row-hover); }
+  .choice:active { background: #f0f4ff; }
   .choice .title {
     font-size: 1.05rem;
     font-weight: 600;
@@ -85,25 +57,12 @@
   }
   .choice .desc {
     font-size: 0.85rem;
-    color: var(--text-muted);
+    color: #666;
     margin-top: 0.3rem;
-  }
-  #theme-toggle-btn {
-    position: fixed;
-    top: 0.75rem;
-    right: 0.75rem;
-    cursor: pointer;
-    border: 1px solid var(--border);
-    background: var(--bg-panel);
-    color: var(--text);
-    border-radius: 4px;
-    padding: 0.35rem 0.75rem;
-    font-size: 0.8rem;
   }
 </style>
 </head>
 <body>
-  <button id="theme-toggle-btn" data-theme-toggle>Theme</button>
   <main>
     <h1>Block Triage</h1>
     <p class="sub">Which interface do you want to open?</p>

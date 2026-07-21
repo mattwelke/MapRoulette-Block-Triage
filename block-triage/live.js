@@ -362,29 +362,6 @@
   const mrProcessAllStatusEl = document.getElementById("mr-process-all-status");
   const mrQuickQueueCheckbox = document.getElementById("mr-quick-queue-checkbox");
   const mrMaxConcurrentInput = document.getElementById("mr-max-concurrent-input");
-  const chromeToggleBtn = document.getElementById("chrome-toggle-btn");
-  const miniAddAreaBtn = document.getElementById("mini-add-area-btn");
-  const miniCombineAreaBtn = document.getElementById("mini-combine-area-btn");
-  const miniProcessAllBtn = document.getElementById("mini-process-all-btn");
-  const miniExpandBtn = document.getElementById("mini-expand-btn");
-
-  // Mirrors a button's disabled state onto another one - used for the
-  // floating minimized-mode icon buttons, which just forward their clicks
-  // to the real button (see below) rather than duplicating its logic, but
-  // still need to visually look disabled/enabled in step with it.
-  function mirrorDisabled(source, mirror) {
-    mirror.disabled = source.disabled;
-    new MutationObserver(() => {
-      mirror.disabled = source.disabled;
-    }).observe(source, { attributes: true, attributeFilter: ["disabled"] });
-  }
-  miniAddAreaBtn.addEventListener("click", () => addAreaBtn.click());
-  miniCombineAreaBtn.addEventListener("click", () => combineAreaBtn.click());
-  miniProcessAllBtn.addEventListener("click", () => mrProcessAllBtn.click());
-  miniExpandBtn.addEventListener("click", () => chromeToggleBtn.click());
-  mirrorDisabled(addAreaBtn, miniAddAreaBtn);
-  mirrorDisabled(combineAreaBtn, miniCombineAreaBtn);
-  mirrorDisabled(mrProcessAllBtn, miniProcessAllBtn);
 
   mrApiKeyInput.value = mrApiKey;
   mrChallengeIdInput.value = mrChallengeId;
@@ -428,25 +405,6 @@
     mrQuickQueueDeleteMode = mrQuickQueueCheckbox.checked;
     localStorage.setItem("block-triage:mrQuickQueueDeleteMode", String(mrQuickQueueDeleteMode));
     appEl.classList.toggle("mr-quick-queue-active", mrQuickQueueDeleteMode);
-  });
-
-  // Collapses the sidebar and most of the topbar down to just the toggle
-  // itself plus three persistent icon-only actions (see style.css's
-  // .chrome-minimized rules), freeing the full width for the map. Persisted
-  // like every other UI preference here, so it survives a reload.
-  let chromeMinimized = localStorage.getItem("block-triage:chromeMinimized") === "true";
-  function applyChromeMinimized() {
-    appEl.classList.toggle("chrome-minimized", chromeMinimized);
-    chromeToggleBtn.textContent = chromeMinimized ? "Show UI" : "Minimize";
-    chromeToggleBtn.title = chromeMinimized
-      ? "Show the sidebar and toolbar again"
-      : "Hide the sidebar and most of the toolbar for more map space";
-  }
-  applyChromeMinimized();
-  chromeToggleBtn.addEventListener("click", () => {
-    chromeMinimized = !chromeMinimized;
-    localStorage.setItem("block-triage:chromeMinimized", String(chromeMinimized));
-    applyChromeMinimized();
   });
 
   mrMaxConcurrentInput.value = mrMaxConcurrent;

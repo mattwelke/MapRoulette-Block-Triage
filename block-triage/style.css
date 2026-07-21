@@ -7,92 +7,8 @@
   --normal: #3388ff;
   --oversized: #e64a19;
   --undersized: #fbc02d;
-
-  /* Chrome (not the map itself, or Leaflet's own controls - just this
-     app's UI: topbar, sidebar, feature list, popups) - light by default,
-     overridden below either automatically (prefers-color-scheme, when the
-     user hasn't picked one explicitly) or by the manual toggle setting
-     data-theme on <html> (see theme.js). */
-  --bg-page: #ffffff;
-  --bg-panel: #ffffff;
-  --bg-sidebar: #fafafa;
-  --bg-btn: #f5f5f5;
-  --bg-btn-hover: #e8e8e8;
-  --bg-row-hover: #f0f4ff;
-  --bg-note: #f0f0f0;
-  --bg-kbd: #eee;
-  --text: #1a1a1a;
-  --text-muted: #777;
-  --text-faint: #888;
-  --text-label: #555;
-  --text-note: #444;
   --border: #ddd;
-  --border-strong: #999;
-  --border-kbd: #ccc;
-  --outline-selected: #333;
-  --row-combine-bg: #f6ecf9;
-  --row-replace-bg: #e0f4f6;
-  --row-delete-bg: #fdeaea;
-  --row-add-bg: #eaf5ea;
-  --row-edit-bg: #e8f0fb;
-  --row-split-bg: #fff3e0;
-  --shadow: rgba(0, 0, 0, 0.3);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    --bg-page: #121212;
-    --bg-panel: #1e1e1e;
-    --bg-sidebar: #181818;
-    --bg-btn: #2a2a2a;
-    --bg-btn-hover: #383838;
-    --bg-row-hover: #24304a;
-    --bg-note: #262626;
-    --bg-kbd: #2e2e2e;
-    --text: #e8e8e8;
-    --text-muted: #a0a0a0;
-    --text-faint: #999999;
-    --text-label: #b0b0b0;
-    --text-note: #cccccc;
-    --border: #3a3a3a;
-    --border-strong: #5a5a5a;
-    --border-kbd: #555;
-    --outline-selected: #e0e0e0;
-    --row-combine-bg: #3a2440;
-    --row-replace-bg: #1c3a3d;
-    --row-delete-bg: #4a2020;
-    --row-add-bg: #1e3a20;
-    --row-edit-bg: #1c2e4a;
-    --row-split-bg: #4a3010;
-    --shadow: rgba(0, 0, 0, 0.6);
-  }
-}
-
-:root[data-theme="dark"] {
-  --bg-page: #121212;
-  --bg-panel: #1e1e1e;
-  --bg-sidebar: #181818;
-  --bg-btn: #2a2a2a;
-  --bg-btn-hover: #383838;
-  --bg-row-hover: #24304a;
-  --bg-note: #262626;
-  --bg-kbd: #2e2e2e;
-  --text: #e8e8e8;
-  --text-muted: #a0a0a0;
-  --text-faint: #999999;
-  --text-label: #b0b0b0;
-  --text-note: #cccccc;
-  --border: #3a3a3a;
-  --border-strong: #5a5a5a;
-  --border-kbd: #555;
-  --outline-selected: #e0e0e0;
-  --row-combine-bg: #3a2440;
-  --row-replace-bg: #1c3a3d;
-  --row-delete-bg: #4a2020;
-  --row-add-bg: #1e3a20;
-  --row-edit-bg: #1c2e4a;
-  --row-split-bg: #4a3010;
-  --shadow: rgba(0, 0, 0, 0.6);
+  --bg-sidebar: #fafafa;
 }
 
 * { box-sizing: border-box; }
@@ -102,8 +18,6 @@ html, body {
   margin: 0;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   font-size: 14px;
-  background: var(--bg-page);
-  color: var(--text);
 }
 
 /* Tablet range (portrait iPad mini through landscape iPad Pro 12.9") - every
@@ -127,7 +41,7 @@ html, body {
   gap: 1rem;
   padding: 0.5rem 1rem;
   border-bottom: 1px solid var(--border);
-  background: var(--bg-panel);
+  background: #fff;
   flex-shrink: 0;
 }
 
@@ -154,7 +68,7 @@ html, body {
 
 #back-link {
   text-decoration: none;
-  color: var(--text);
+  color: #333;
   font-size: 1.2rem;
   line-height: 1;
 }
@@ -178,26 +92,18 @@ html, body {
 
 .btn, button {
   cursor: pointer;
-  border: 1px solid var(--border-strong);
-  background: var(--bg-btn);
-  color: var(--text);
+  border: 1px solid #999;
+  background: #f5f5f5;
   border-radius: 4px;
   padding: 0.35rem 0.75rem;
   font-size: 0.9rem;
 }
 
-.btn:hover, button:hover:not(:disabled) { background: var(--bg-btn-hover); }
+.btn:hover, button:hover:not(:disabled) { background: #e8e8e8; }
 
 button:disabled { opacity: 0.5; cursor: not-allowed; }
 
-input[type="text"], input[type="password"], input[type="number"] {
-  background: var(--bg-panel);
-  color: var(--text);
-  border: 1px solid var(--border-strong);
-  border-radius: 4px;
-}
-
-.muted { color: var(--text-muted); font-size: 0.85rem; }
+.muted { color: #777; font-size: 0.85rem; }
 
 .toggle-label {
   display: flex;
@@ -282,7 +188,7 @@ input[type="text"], input[type="password"], input[type="number"] {
   font-size: 0.8rem;
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  color: var(--text-label);
+  color: #555;
   margin: 1rem 0 0.4rem;
 }
 
@@ -364,7 +270,7 @@ input[type="text"], input[type="password"], input[type="number"] {
 .mr-inline-status {
   font-size: 0.8rem;
   margin-top: 0.3rem;
-  color: var(--text-label);
+  color: #555;
 }
 
 @keyframes selection-pulse {
@@ -380,9 +286,9 @@ input[type="text"], input[type="password"], input[type="number"] {
   font-size: 0.8rem;
   margin-top: 0.4rem;
   padding: 0.35rem 0.5rem;
-  background: var(--bg-note);
+  background: #f0f0f0;
   border-radius: 4px;
-  color: var(--text-note);
+  color: #444;
 }
 
 #thresholds label, #filters label {
@@ -421,12 +327,11 @@ input[type="text"], input[type="password"], input[type="number"] {
 .swatch.active-lock { background: var(--active-lock); }
 
 kbd {
-  background: var(--bg-kbd);
-  border: 1px solid var(--border-kbd);
+  background: #eee;
+  border: 1px solid #ccc;
   border-radius: 3px;
   padding: 0 0.3rem;
   font-family: monospace;
-  color: var(--text);
 }
 
 #map {
@@ -449,59 +354,59 @@ kbd {
   gap: 0.5rem;
   padding: 0.35rem 0.5rem;
   border-radius: 3px;
-  background: var(--bg-panel);
+  background: #fff;
   border: 1px solid var(--border);
   cursor: pointer;
   font-size: 0.8rem;
 }
 
-.feature-row:hover { background: var(--bg-row-hover); }
+.feature-row:hover { background: #f0f4ff; }
 
 .feature-row.selected {
-  border-color: var(--outline-selected);
-  box-shadow: 0 0 0 1px var(--outline-selected) inset;
+  border-color: #333;
+  box-shadow: 0 0 0 1px #333 inset;
 }
 
 .feature-row.combine-selected {
   border-color: #9c27b0;
   box-shadow: 0 0 0 1px #9c27b0 inset;
-  background: var(--row-combine-bg);
+  background: #f6ecf9;
 }
 
 .feature-row.replace-selected {
   border-color: #00838f;
   box-shadow: 0 0 0 1px #00838f inset;
-  background: var(--row-replace-bg);
+  background: #e0f4f6;
 }
 
 .feature-row.mr-delete-queued {
   border-color: #b71c1c;
   box-shadow: 0 0 0 1px #b71c1c inset;
-  background: var(--row-delete-bg);
+  background: #fdeaea;
 }
 
 .feature-row.mr-add-queued {
   border-color: #2e7d32;
   box-shadow: 0 0 0 1px #2e7d32 inset;
-  background: var(--row-add-bg);
+  background: #eaf5ea;
 }
 
 .feature-row.mr-edit-queued {
   border-color: #1565c0;
   box-shadow: 0 0 0 1px #1565c0 inset;
-  background: var(--row-edit-bg);
+  background: #e8f0fb;
 }
 
 .feature-row.mr-split-queued {
   border-color: #ef6c00;
   box-shadow: 0 0 0 1px #ef6c00 inset;
-  background: var(--row-split-bg);
+  background: #fff3e0;
 }
 
 .feature-row.mr-replace-queued {
   border-color: #00838f;
   box-shadow: 0 0 0 1px #00838f inset;
-  background: var(--row-replace-bg);
+  background: #e0f4f6;
 }
 
 .edit-vertex-icon {
@@ -537,12 +442,7 @@ kbd {
   overflow: hidden;
 }
 
-.feature-row .id { color: var(--text-faint); }
-
-.leaflet-popup-content-wrapper, .leaflet-popup-tip {
-  background: var(--bg-panel);
-  color: var(--text);
-}
+.feature-row .id { color: #888; }
 
 .leaflet-popup-content {
   font-size: 0.85rem;
@@ -581,11 +481,10 @@ kbd {
   max-width: calc(100vw - 24px);
   max-height: 70vh;
   overflow-y: auto;
-  background: var(--bg-panel);
-  color: var(--text);
+  background: #fff;
   border: 1px solid var(--border);
   border-radius: 10px;
-  box-shadow: 0 4px 20px var(--shadow);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
   padding: 0.75rem 1rem;
 }
 
@@ -599,11 +498,11 @@ kbd {
   line-height: 1;
   padding: 0.25rem;
   cursor: pointer;
-  color: var(--text-muted);
+  color: #777;
 }
 
 .tablet-panel-close:hover {
-  color: var(--text);
+  color: #222;
 }
 
 .tablet-panel-content {
@@ -614,53 +513,4 @@ kbd {
   .tablet-panel:not([hidden]) {
     display: block;
   }
-}
-
-/* Live mode only: #chrome-toggle-btn hides the topbar and sidebar
-   entirely, freeing their space for the map. #mini-toolbar (below) floats
-   over the map instead, rather than occupying a bar of its own, so that
-   space is reclaimed too - not just the sidebar's. */
-#app.chrome-minimized #topbar {
-  display: none;
-}
-
-#app.chrome-minimized #sidebar {
-  display: none;
-}
-
-/* Hidden outside minimized mode even if JS forgets to toggle it - each
-   button here just forwards its click to the real button elsewhere on
-   the page (see live.js), so there's nothing here to keep in sync beyond
-   that forwarding. Bottom-left, deliberately - Leaflet's own zoom control
-   sits top-left, its layer switcher top-right, and its attribution
-   bottom-right, so this is the one corner nothing else already occupies. */
-#mini-toolbar {
-  display: none;
-  position: absolute;
-  bottom: 12px;
-  left: 12px;
-  z-index: 1000;
-  gap: 6px;
-}
-
-#app.chrome-minimized #mini-toolbar {
-  display: flex;
-}
-
-#mini-toolbar button {
-  width: 2.3rem;
-  height: 2.3rem;
-  padding: 0;
-  font-size: 1.15rem;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-
-/* #draw-status's default position leaves room for the (now hidden)
-   340px-wide sidebar - without this it'd float in from an empty gap on
-   the left instead of centering across the full map width. */
-#app.chrome-minimized #draw-status {
-  left: 12px;
-  max-width: calc(100% - 24px);
 }
