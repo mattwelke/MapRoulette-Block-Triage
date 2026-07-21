@@ -7,8 +7,92 @@
   --normal: #3388ff;
   --oversized: #e64a19;
   --undersized: #fbc02d;
-  --border: #ddd;
+
+  /* Chrome (not the map itself, or Leaflet's own controls - just this
+     app's UI: topbar, sidebar, feature list, popups) - light by default,
+     overridden below either automatically (prefers-color-scheme, when the
+     user hasn't picked one explicitly) or by the manual toggle setting
+     data-theme on <html> (see theme.js). */
+  --bg-page: #ffffff;
+  --bg-panel: #ffffff;
   --bg-sidebar: #fafafa;
+  --bg-btn: #f5f5f5;
+  --bg-btn-hover: #e8e8e8;
+  --bg-row-hover: #f0f4ff;
+  --bg-note: #f0f0f0;
+  --bg-kbd: #eee;
+  --text: #1a1a1a;
+  --text-muted: #777;
+  --text-faint: #888;
+  --text-label: #555;
+  --text-note: #444;
+  --border: #ddd;
+  --border-strong: #999;
+  --border-kbd: #ccc;
+  --outline-selected: #333;
+  --row-combine-bg: #f6ecf9;
+  --row-replace-bg: #e0f4f6;
+  --row-delete-bg: #fdeaea;
+  --row-add-bg: #eaf5ea;
+  --row-edit-bg: #e8f0fb;
+  --row-split-bg: #fff3e0;
+  --shadow: rgba(0, 0, 0, 0.3);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg-page: #121212;
+    --bg-panel: #1e1e1e;
+    --bg-sidebar: #181818;
+    --bg-btn: #2a2a2a;
+    --bg-btn-hover: #383838;
+    --bg-row-hover: #24304a;
+    --bg-note: #262626;
+    --bg-kbd: #2e2e2e;
+    --text: #e8e8e8;
+    --text-muted: #a0a0a0;
+    --text-faint: #999999;
+    --text-label: #b0b0b0;
+    --text-note: #cccccc;
+    --border: #3a3a3a;
+    --border-strong: #5a5a5a;
+    --border-kbd: #555;
+    --outline-selected: #e0e0e0;
+    --row-combine-bg: #3a2440;
+    --row-replace-bg: #1c3a3d;
+    --row-delete-bg: #4a2020;
+    --row-add-bg: #1e3a20;
+    --row-edit-bg: #1c2e4a;
+    --row-split-bg: #4a3010;
+    --shadow: rgba(0, 0, 0, 0.6);
+  }
+}
+
+:root[data-theme="dark"] {
+  --bg-page: #121212;
+  --bg-panel: #1e1e1e;
+  --bg-sidebar: #181818;
+  --bg-btn: #2a2a2a;
+  --bg-btn-hover: #383838;
+  --bg-row-hover: #24304a;
+  --bg-note: #262626;
+  --bg-kbd: #2e2e2e;
+  --text: #e8e8e8;
+  --text-muted: #a0a0a0;
+  --text-faint: #999999;
+  --text-label: #b0b0b0;
+  --text-note: #cccccc;
+  --border: #3a3a3a;
+  --border-strong: #5a5a5a;
+  --border-kbd: #555;
+  --outline-selected: #e0e0e0;
+  --row-combine-bg: #3a2440;
+  --row-replace-bg: #1c3a3d;
+  --row-delete-bg: #4a2020;
+  --row-add-bg: #1e3a20;
+  --row-edit-bg: #1c2e4a;
+  --row-split-bg: #4a3010;
+  --shadow: rgba(0, 0, 0, 0.6);
 }
 
 * { box-sizing: border-box; }
@@ -18,6 +102,8 @@ html, body {
   margin: 0;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   font-size: 14px;
+  background: var(--bg-page);
+  color: var(--text);
 }
 
 /* Tablet range (portrait iPad mini through landscape iPad Pro 12.9") - every
@@ -41,7 +127,7 @@ html, body {
   gap: 1rem;
   padding: 0.5rem 1rem;
   border-bottom: 1px solid var(--border);
-  background: #fff;
+  background: var(--bg-panel);
   flex-shrink: 0;
 }
 
@@ -68,7 +154,7 @@ html, body {
 
 #back-link {
   text-decoration: none;
-  color: #333;
+  color: var(--text);
   font-size: 1.2rem;
   line-height: 1;
 }
@@ -92,18 +178,26 @@ html, body {
 
 .btn, button {
   cursor: pointer;
-  border: 1px solid #999;
-  background: #f5f5f5;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-btn);
+  color: var(--text);
   border-radius: 4px;
   padding: 0.35rem 0.75rem;
   font-size: 0.9rem;
 }
 
-.btn:hover, button:hover:not(:disabled) { background: #e8e8e8; }
+.btn:hover, button:hover:not(:disabled) { background: var(--bg-btn-hover); }
 
 button:disabled { opacity: 0.5; cursor: not-allowed; }
 
-.muted { color: #777; font-size: 0.85rem; }
+input[type="text"], input[type="password"], input[type="number"] {
+  background: var(--bg-panel);
+  color: var(--text);
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+}
+
+.muted { color: var(--text-muted); font-size: 0.85rem; }
 
 .toggle-label {
   display: flex;
@@ -188,7 +282,7 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
   font-size: 0.8rem;
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  color: #555;
+  color: var(--text-label);
   margin: 1rem 0 0.4rem;
 }
 
@@ -270,7 +364,7 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 .mr-inline-status {
   font-size: 0.8rem;
   margin-top: 0.3rem;
-  color: #555;
+  color: var(--text-label);
 }
 
 @keyframes selection-pulse {
@@ -286,9 +380,9 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
   font-size: 0.8rem;
   margin-top: 0.4rem;
   padding: 0.35rem 0.5rem;
-  background: #f0f0f0;
+  background: var(--bg-note);
   border-radius: 4px;
-  color: #444;
+  color: var(--text-note);
 }
 
 #thresholds label, #filters label {
@@ -327,11 +421,12 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 .swatch.active-lock { background: var(--active-lock); }
 
 kbd {
-  background: #eee;
-  border: 1px solid #ccc;
+  background: var(--bg-kbd);
+  border: 1px solid var(--border-kbd);
   border-radius: 3px;
   padding: 0 0.3rem;
   font-family: monospace;
+  color: var(--text);
 }
 
 #map {
@@ -354,59 +449,59 @@ kbd {
   gap: 0.5rem;
   padding: 0.35rem 0.5rem;
   border-radius: 3px;
-  background: #fff;
+  background: var(--bg-panel);
   border: 1px solid var(--border);
   cursor: pointer;
   font-size: 0.8rem;
 }
 
-.feature-row:hover { background: #f0f4ff; }
+.feature-row:hover { background: var(--bg-row-hover); }
 
 .feature-row.selected {
-  border-color: #333;
-  box-shadow: 0 0 0 1px #333 inset;
+  border-color: var(--outline-selected);
+  box-shadow: 0 0 0 1px var(--outline-selected) inset;
 }
 
 .feature-row.combine-selected {
   border-color: #9c27b0;
   box-shadow: 0 0 0 1px #9c27b0 inset;
-  background: #f6ecf9;
+  background: var(--row-combine-bg);
 }
 
 .feature-row.replace-selected {
   border-color: #00838f;
   box-shadow: 0 0 0 1px #00838f inset;
-  background: #e0f4f6;
+  background: var(--row-replace-bg);
 }
 
 .feature-row.mr-delete-queued {
   border-color: #b71c1c;
   box-shadow: 0 0 0 1px #b71c1c inset;
-  background: #fdeaea;
+  background: var(--row-delete-bg);
 }
 
 .feature-row.mr-add-queued {
   border-color: #2e7d32;
   box-shadow: 0 0 0 1px #2e7d32 inset;
-  background: #eaf5ea;
+  background: var(--row-add-bg);
 }
 
 .feature-row.mr-edit-queued {
   border-color: #1565c0;
   box-shadow: 0 0 0 1px #1565c0 inset;
-  background: #e8f0fb;
+  background: var(--row-edit-bg);
 }
 
 .feature-row.mr-split-queued {
   border-color: #ef6c00;
   box-shadow: 0 0 0 1px #ef6c00 inset;
-  background: #fff3e0;
+  background: var(--row-split-bg);
 }
 
 .feature-row.mr-replace-queued {
   border-color: #00838f;
   box-shadow: 0 0 0 1px #00838f inset;
-  background: #e0f4f6;
+  background: var(--row-replace-bg);
 }
 
 .edit-vertex-icon {
@@ -442,7 +537,12 @@ kbd {
   overflow: hidden;
 }
 
-.feature-row .id { color: #888; }
+.feature-row .id { color: var(--text-faint); }
+
+.leaflet-popup-content-wrapper, .leaflet-popup-tip {
+  background: var(--bg-panel);
+  color: var(--text);
+}
 
 .leaflet-popup-content {
   font-size: 0.85rem;
@@ -481,10 +581,11 @@ kbd {
   max-width: calc(100vw - 24px);
   max-height: 70vh;
   overflow-y: auto;
-  background: #fff;
+  background: var(--bg-panel);
+  color: var(--text);
   border: 1px solid var(--border);
   border-radius: 10px;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 4px 20px var(--shadow);
   padding: 0.75rem 1rem;
 }
 
@@ -498,11 +599,11 @@ kbd {
   line-height: 1;
   padding: 0.25rem;
   cursor: pointer;
-  color: #777;
+  color: var(--text-muted);
 }
 
 .tablet-panel-close:hover {
-  color: #222;
+  color: var(--text);
 }
 
 .tablet-panel-content {

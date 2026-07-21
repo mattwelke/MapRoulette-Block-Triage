@@ -385,6 +385,26 @@ Outside that width range (phones, and regular desktop/laptop screens),
 both of these are no-ops — text stays at its normal size and tapping an
 area opens the usual Leaflet popup right at the tapped spot.
 
+## Theme (light/dark)
+
+All three pages (`index.html`, `local.html`, `live.html`) follow your
+device's dark mode setting automatically, and each has a **Theme** button
+(top-right) to override it. Three states, cycled on click:
+- **Auto** (the default, until you choose otherwise) — follows
+  `prefers-color-scheme`, so it switches automatically if your device's
+  theme does.
+- **Light** / **Dark** — forces that theme regardless of the device
+  setting.
+
+The choice is stored in `localStorage` and applies across all three
+pages. `theme.js` (one small shared script, loaded by all three) applies
+it immediately, before the page paints, so there's no flash of the wrong
+theme on load.
+
+This only recolors this app's own UI - the topbar, sidebar, feature list,
+and popups. The map itself (tiles, and Leaflet's own zoom/layer controls)
+isn't affected either way, so it looks the same regardless of theme.
+
 ## Basemaps
 
 The layer switcher (top-right of the map) toggles between standard

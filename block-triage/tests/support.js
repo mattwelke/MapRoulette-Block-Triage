@@ -162,7 +162,9 @@ async function launch(opts) {
   }
   const browser = await chromium.launch(launchOptions);
   const viewport = (opts && opts.viewport) || { width: 1400, height: 900 };
-  const page = await browser.newPage({ viewport });
+  const pageOptions = { viewport };
+  if (opts && opts.colorScheme) pageOptions.colorScheme = opts.colorScheme;
+  const page = await browser.newPage(pageOptions);
   watchForPageErrors(page);
   return { browser, page };
 }
