@@ -362,8 +362,29 @@
   const mrProcessAllStatusEl = document.getElementById("mr-process-all-status");
   const mrQuickQueueCheckbox = document.getElementById("mr-quick-queue-checkbox");
   const mrMaxConcurrentInput = document.getElementById("mr-max-concurrent-input");
-  const miniProcessAllBtn = document.getElementById("mini-process-all-btn");
   const chromeToggleBtn = document.getElementById("chrome-toggle-btn");
+  const miniAddAreaBtn = document.getElementById("mini-add-area-btn");
+  const miniCombineAreaBtn = document.getElementById("mini-combine-area-btn");
+  const miniProcessAllBtn = document.getElementById("mini-process-all-btn");
+  const miniExpandBtn = document.getElementById("mini-expand-btn");
+
+  // Mirrors a button's disabled state onto another one - used for the
+  // floating minimized-mode icon buttons, which just forward their clicks
+  // to the real button (see below) rather than duplicating its logic, but
+  // still need to visually look disabled/enabled in step with it.
+  function mirrorDisabled(source, mirror) {
+    mirror.disabled = source.disabled;
+    new MutationObserver(() => {
+      mirror.disabled = source.disabled;
+    }).observe(source, { attributes: true, attributeFilter: ["disabled"] });
+  }
+  miniAddAreaBtn.addEventListener("click", () => addAreaBtn.click());
+  miniCombineAreaBtn.addEventListener("click", () => combineAreaBtn.click());
+  miniProcessAllBtn.addEventListener("click", () => mrProcessAllBtn.click());
+  miniExpandBtn.addEventListener("click", () => chromeToggleBtn.click());
+  mirrorDisabled(addAreaBtn, miniAddAreaBtn);
+  mirrorDisabled(combineAreaBtn, miniCombineAreaBtn);
+  mirrorDisabled(mrProcessAllBtn, miniProcessAllBtn);
 
   mrApiKeyInput.value = mrApiKey;
   mrChallengeIdInput.value = mrChallengeId;
@@ -380,7 +401,6 @@
   mrSplitQueueBtn.addEventListener("click", processSplitQueue);
   mrReplaceQueueBtn.addEventListener("click", processReplaceQueue);
   mrProcessAllBtn.addEventListener("click", processAllQueues);
-  miniProcessAllBtn.addEventListener("click", processAllQueues);
 
   mrApiKeyInput.addEventListener("change", () => {
     mrApiKey = mrApiKeyInput.value.trim();
@@ -586,8 +606,6 @@
     const total = mrDeleteQueue.size + mrAddQueue.size + mrEditQueue.size + splitQueue.size + replaceQueue.size;
     mrProcessAllBtn.textContent = `Process all pending (${total})`;
     mrProcessAllBtn.disabled = total === 0;
-    miniProcessAllBtn.title = `Process all pending (${total})`;
-    miniProcessAllBtn.disabled = total === 0;
   }
 
   // Runs every queue's own processing function in turn - each already
@@ -595,7 +613,6 @@
   // just a convenience that saves clicking each queue's button separately.
   async function processAllQueues() {
     mrProcessAllBtn.disabled = true;
-    miniProcessAllBtn.disabled = true;
     mrProcessAllStatusEl.textContent = "Processing every queue below…";
     await processMrAddQueue();
     await processMrDeleteQueue();

@@ -24,8 +24,8 @@
       <div id="file-controls">
         <button id="undo-btn" disabled title="Undo last change (Ctrl+Z)">&#8630; Undo</button>
         <button id="redo-btn" disabled title="Redo (Ctrl+Shift+Z)">&#8631; Redo</button>
-        <button id="add-area-btn" class="minimizable-action" data-icon="&#10133;" disabled title="Draw a new area's outline by clicking points on the map">Add new area&hellip;</button>
-        <button id="combine-area-btn" class="minimizable-action" data-icon="&#129513;" disabled title="Click 2+ adjacent areas to merge them back into one">Combine areas&hellip;</button>
+        <button id="add-area-btn" disabled title="Draw a new area's outline by clicking points on the map">Add new area&hellip;</button>
+        <button id="combine-area-btn" disabled title="Click 2+ adjacent areas to merge them back into one">Combine areas&hellip;</button>
         <button id="replace-area-btn" disabled title="Select one or more areas, then draw one or more new areas to replace them">Replace areas&hellip;</button>
         <span id="reference-controls">
           <label class="btn" for="reference-file-input">Load reference layer&hellip;</label>
@@ -34,12 +34,24 @@
           <button id="clear-reference-btn" disabled title="Remove the reference layer">Clear</button>
         </span>
       </div>
-      <button id="mini-process-all-btn" class="minimizable-action" data-icon="&#128260;" disabled title="Process all pending (0)">Process all pending</button>
       <button id="theme-toggle-btn" data-theme-toggle>Theme</button>
       <button id="chrome-toggle-btn" title="Hide the sidebar and most of the toolbar for more map space">Minimize</button>
     </header>
 
     <div id="body">
+      <!-- Only shown when minimized (see #app.chrome-minimized in style.css)
+           - floats over the map itself rather than occupying its own bar,
+           so hiding the topbar/sidebar actually reclaims that space. Each
+           button just forwards its click to the real (currently hidden)
+           button elsewhere on the page, reusing all of their existing
+           logic/state rather than duplicating it. -->
+      <div id="mini-toolbar">
+        <button id="mini-add-area-btn" title="Add new area…">&#10133;</button>
+        <button id="mini-combine-area-btn" title="Combine areas…">&#129513;</button>
+        <button id="mini-process-all-btn" title="Process all pending">&#128260;</button>
+        <button id="mini-expand-btn" title="Show the sidebar and toolbar again">&#9974;</button>
+      </div>
+
       <div id="draw-status" hidden>
         <span id="draw-status-text"></span>
         <button id="draw-finish-btn">Finish (Enter)</button>

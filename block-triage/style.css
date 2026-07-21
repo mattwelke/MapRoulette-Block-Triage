@@ -616,46 +616,45 @@ kbd {
   }
 }
 
-/* Live mode only: #chrome-toggle-btn collapses the sidebar and most of the
-   topbar down to just itself plus three persistent, icon-only actions
-   (add area, combine areas, process all pending), freeing the full width
-   for the map. The icon glyph comes from data-icon via ::before rather
-   than the button's own text, since several of these buttons (add/combine)
-   have their text rewritten by JS while active (e.g. "Cancel adding…") -
-   ::before is untouched by that, so the icon doesn't need to track it. */
+/* Live mode only: #chrome-toggle-btn hides the topbar and sidebar
+   entirely, freeing their space for the map. #mini-toolbar (below) floats
+   over the map instead, rather than occupying a bar of its own, so that
+   space is reclaimed too - not just the sidebar's. */
+#app.chrome-minimized #topbar {
+  display: none;
+}
+
 #app.chrome-minimized #sidebar {
   display: none;
 }
 
-#app.chrome-minimized #back-link,
-#app.chrome-minimized #topbar h1,
-#app.chrome-minimized #undo-btn,
-#app.chrome-minimized #redo-btn,
-#app.chrome-minimized #replace-area-btn,
-#app.chrome-minimized #reference-controls,
-#app.chrome-minimized #theme-toggle-btn {
+/* Hidden outside minimized mode even if JS forgets to toggle it - each
+   button here just forwards its click to the real button elsewhere on
+   the page (see live.js), so there's nothing here to keep in sync beyond
+   that forwarding. Bottom-left, deliberately - Leaflet's own zoom control
+   sits top-left, its layer switcher top-right, and its attribution
+   bottom-right, so this is the one corner nothing else already occupies. */
+#mini-toolbar {
   display: none;
+  position: absolute;
+  bottom: 12px;
+  left: 12px;
+  z-index: 1000;
+  gap: 6px;
 }
 
-#mini-process-all-btn {
-  display: none;
+#app.chrome-minimized #mini-toolbar {
+  display: flex;
 }
 
-#app.chrome-minimized .minimizable-action {
-  display: inline-flex;
+#mini-toolbar button {
   width: 2.3rem;
   height: 2.3rem;
   padding: 0;
-  font-size: 0;
+  font-size: 1.15rem;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  overflow: hidden;
-  white-space: nowrap;
-}
-
-#app.chrome-minimized .minimizable-action::before {
-  content: attr(data-icon);
-  font-size: 1.15rem;
 }
 
 /* #draw-status's default position leaves room for the (now hidden)
