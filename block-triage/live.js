@@ -31,6 +31,15 @@
   // more work for someone re-reviewing it.
   const LOCKED_TASK_STATUSES = new Set(["fixed", "already fixed"]);
 
+  // Marks an area as exempt from the undersized/needs-combine verdict (see
+  // category()) - some areas are legitimately small because the underlying
+  // density is low, not because anything's wrong with the boundary. Stored
+  // as a GeoJSON feature property (underscore-prefixed, like local.js's own
+  // _blockTriageStatus) so it round-trips through MapRoulette: included when
+  // a task is created (mrCreateTask), read back out of the task's own
+  // properties the next time a challenge is loaded (buildEntries).
+  const LOW_DENSITY_PROPERTY = "_blockTriageLowDensity";
+
   function isLockedTaskStatus(rawStatus) {
     if (!rawStatus) return false;
     return LOCKED_TASK_STATUSES.has(String(rawStatus).replace(/_/g, " ").trim().toLowerCase());
@@ -823,7 +832,7 @@
 
       mrAddQueueStatusEl.textContent = `Adding ${done} of ${ids.length}…`;
       try {
-        const created = await mrCreateTask(entry.feature);
+        const created = await mrCreateTask(entry.feature, entry.lowDensity);
         entry.mrTaskId = created.id;
         entry.layer.setStyle(styleFor(entry));
       } catch (err) {
@@ -902,7 +911,7 @@
       }
       entry.mrTaskId = null; // the old task is gone remotely regardless of what happens next
       try {
-        const created = await mrCreateTask(entry.feature);
+        const created = await mrCreateTask(entry.feature, entry.lowDensity);
         entry.mrTaskId = created.id;
       } catch (err) {
         failed++;
@@ -1008,14 +1017,15 @@
     }
   }
 
-  async function mrCreateTask(feature) {
+  async function mrCreateTask(feature, lowDensity) {
     if (!mrChallengeId) throw new Error("Set a Challenge ID first.");
+    const properties = lowDensity ? { [LOW_DENSITY_PROPERTY]: true } : {};
     const body = {
       name: crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`,
       parent: Number(mrChallengeId),
       geometries: {
         type: "FeatureCollection",
-        features: [{ type: "Feature", geometry: feature.geometry, properties: {} }],
+        features: [{ type: "Feature", geometry: feature.geometry, properties }],
       },
     };
     return mrRequest("/task", { method: "POST", body: JSON.stringify(body) });
@@ -1363,6 +1373,7 @@
         mrTaskStatus,
         mrLocked: isLockedTaskStatus(mrTaskStatus),
         mrActiveLockedBy: null, // filled in by refreshMrLockState, if/when it runs
+        lowDensity: !!(feature.properties && feature.properties[LOW_DENSITY_PROPERTY] === true),
       });
       orderedIds.push(id);
     });
@@ -1386,7 +1397,11 @@
     if (entry.mrLocked) return "locked";
     if (entry.mrActiveLockedBy != null) return "active-lock";
     if (entry.area >= targetAreaLimit) return "oversized";
-    if (entry.area <= targetAreaLimit * 0.5) return "undersized";
+    // A "low density" mark exempts an area from the undersized/needs-combine
+    // verdict specifically - a genuinely low-density area is expected to be
+    // physically small without that meaning anything's wrong with it.
+    // Oversized (needs split) isn't a density concern, so it isn't exempted.
+    if (entry.area <= targetAreaLimit * 0.5 && !entry.lowDensity) return "undersized";
     return "normal";
   }
 
@@ -1551,6 +1566,14 @@
       ${
         lockReason || splitPending || replacePending || combinePending
           ? ""
+          : `<label class="toggle-label" title="Exempts this area from the undersized/needs-combine check - it's expected to be small because the underlying density is genuinely low, not because anything's wrong.">
+              <input type="checkbox" data-low-density ${entry.lowDensity ? "checked" : ""}>
+              Low density (exempt from size check)
+            </label>`
+      }
+      ${
+        lockReason || splitPending || replacePending || combinePending
+          ? ""
           : `<div class="popup-actions">
               <button data-mr-action></button>
               ${entry.mrTaskId ? "" : `<button data-mr-add-now>Add now</button>`}
@@ -1592,6 +1615,19 @@
       editBoundaryBtn.addEventListener("click", () => {
         closeAnyPopup();
         startEditBoundary(entry.id);
+      });
+    }
+
+    const lowDensityCheckbox = div.querySelector("[data-low-density]");
+    if (lowDensityCheckbox) {
+      lowDensityCheckbox.addEventListener("change", (e) => {
+        toggleLowDensity(entry);
+        // The global keydown handler ignores every shortcut (including
+        // undo/redo) while an <input> has focus, to avoid interfering with
+        // typing in the target-area-limit field - a checkbox isn't typed
+        // into, so blur it right after toggling instead of leaving keyboard
+        // shortcuts silently dead until something else steals focus.
+        e.target.blur();
       });
     }
 
@@ -1649,7 +1685,7 @@
         mrBtn.disabled = true;
         mrStatusInline.textContent = "Adding to MapRoulette…";
         try {
-          const created = await mrCreateTask(entry.feature);
+          const created = await mrCreateTask(entry.feature, entry.lowDensity);
           entry.mrTaskId = created.id;
           mrAddQueue.delete(entry.id);
           entry.layer.setStyle(styleFor(entry));
@@ -1682,6 +1718,7 @@
     else if (action.type === "replace") undoReplace(action);
     else if (action.type === "drop-split-piece") undoDropSplitPiece(action);
     else if (action.type === "split-in-group") undoSplitInGroup(action);
+    else if (action.type === "low-density") undoLowDensity(action);
     redoStack.push(action);
     updateUndoRedoButtons();
   }
@@ -1696,6 +1733,7 @@
     else if (action.type === "replace") redoReplace(action);
     else if (action.type === "drop-split-piece") redoDropSplitPiece(action);
     else if (action.type === "split-in-group") redoSplitInGroup(action);
+    else if (action.type === "low-density") redoLowDensity(action);
     undoStack.push(action);
     updateUndoRedoButtons();
   }
@@ -1728,6 +1766,7 @@
       mrTaskStatus: entry.mrTaskStatus,
       mrLocked: entry.mrLocked,
       mrActiveLockedBy: entry.mrActiveLockedBy,
+      lowDensity: entry.lowDensity,
     };
   }
 
@@ -1779,6 +1818,9 @@
         mrTaskStatus: null,
         mrLocked: false,
         mrActiveLockedBy: null,
+        // Each piece is still part of the same physical area, so it inherits
+        // the low-density mark rather than starting unmarked.
+        lowDensity: originalSnapshot.lowDensity,
       };
     });
     return { originalSnapshot, newSnapshots };
@@ -2047,7 +2089,7 @@
       const liveEntry = entries.get(snap.id);
       if (!liveEntry) continue; // this piece was removed/changed locally before the request resolved
       try {
-        const created = await mrCreateTask(liveEntry.feature);
+        const created = await mrCreateTask(liveEntry.feature, liveEntry.lowDensity);
         snap.mrTaskId = created.id;
         liveEntry.mrTaskId = created.id;
         liveEntry.layer.setStyle(styleFor(liveEntry));
@@ -2121,6 +2163,7 @@
       mrTaskStatus: null,
       mrLocked: false,
       mrActiveLockedBy: null,
+      lowDensity: false,
     };
     // A freshly-drawn area has no MapRoulette task yet - auto-queue it for
     // adding rather than requiring a manual step; "Add now" in its popup
@@ -2277,6 +2320,9 @@
       mrLocked: false,
       mrActiveLockedBy: null,
       pendingCombineGroup: groupId,
+      // If any constituent was marked low-density, the merged area still is -
+      // merging two areas doesn't make either of them less sparse.
+      lowDensity: originalSnapshots.some((s) => s.lowDensity),
     };
     // Only auto-queue the merged area for adding if none of the constituents
     // had a MapRoulette task of their own - if any did, processing the
@@ -2364,7 +2410,7 @@
     const liveEntry = entries.get(newSnapshot.id);
     if (!liveEntry || liveEntry.mrTaskId) return; // gone, or already linked some other way, before this ran
     try {
-      const created = await mrCreateTask(liveEntry.feature);
+      const created = await mrCreateTask(liveEntry.feature, liveEntry.lowDensity);
       newSnapshot.mrTaskId = created.id;
       liveEntry.mrTaskId = created.id;
       liveEntry.layer.setStyle(styleFor(liveEntry));
@@ -2667,7 +2713,7 @@
       const liveEntry = entries.get(snap.id);
       if (!liveEntry) continue; // removed/changed locally before the request resolved
       try {
-        const created = await mrCreateTask(liveEntry.feature);
+        const created = await mrCreateTask(liveEntry.feature, liveEntry.lowDensity);
         snap.mrTaskId = created.id;
         liveEntry.mrTaskId = created.id;
         liveEntry.layer.setStyle(styleFor(liveEntry));
@@ -2883,6 +2929,59 @@
     if (!entry) return;
     map.removeLayer(entry.layer);
     applyEditedGeometry(entry, action.afterFeature);
+    if (entry.mrTaskId) {
+      mrEditQueue.add(action.id);
+      updateMrEditQueueButton();
+    }
+    updateStats();
+    renderList();
+    selectFeature(action.id);
+    panTo(entry);
+  }
+
+  // Flips the low-density exemption on an already-loaded entry. Purely a
+  // property change (the geometry doesn't move), but if the entry is
+  // task-linked, MapRoulette's copy of it still needs to be recreated to
+  // pick up the new property (there's no in-place update used anywhere in
+  // this app) - reuses the boundary-edit queue/mechanism for that, since
+  // "delete the old task, create a fresh one reflecting the entry's current
+  // state" is exactly what it already does, regardless of what changed.
+  function toggleLowDensity(entry) {
+    const before = entry.lowDensity;
+    entry.lowDensity = !before;
+    entry.layer.setStyle(styleFor(entry));
+    const wasEditQueuedBefore = mrEditQueue.has(entry.id);
+    if (entry.mrTaskId) {
+      mrEditQueue.add(entry.id);
+      updateMrEditQueueButton();
+    }
+    undoStack.push({ type: "low-density", id: entry.id, before, after: entry.lowDensity, wasEditQueuedBefore });
+    redoStack = [];
+    updateUndoRedoButtons();
+    updateStats();
+    renderList();
+  }
+
+  function undoLowDensity(action) {
+    const entry = entries.get(action.id);
+    if (!entry) return;
+    entry.lowDensity = action.before;
+    entry.layer.setStyle(styleFor(entry));
+    if (!action.wasEditQueuedBefore) {
+      mrEditQueue.delete(action.id);
+      updateMrEditQueueButton();
+    }
+    updateStats();
+    renderList();
+    selectFeature(action.id);
+    panTo(entry);
+  }
+
+  function redoLowDensity(action) {
+    const entry = entries.get(action.id);
+    if (!entry) return;
+    entry.lowDensity = action.after;
+    entry.layer.setStyle(styleFor(entry));
     if (entry.mrTaskId) {
       mrEditQueue.add(action.id);
       updateMrEditQueueButton();
