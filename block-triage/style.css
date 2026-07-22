@@ -411,6 +411,12 @@ kbd {
   background: #e0f4f6;
 }
 
+.feature-row.mr-combine-queued {
+  border-color: #9c27b0;
+  box-shadow: 0 0 0 1px #9c27b0 inset;
+  background: #f6ecf9;
+}
+
 .edit-vertex-icon {
   width: 14px;
   height: 14px;

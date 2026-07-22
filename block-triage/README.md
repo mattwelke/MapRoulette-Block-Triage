@@ -179,10 +179,10 @@ Both directions work as queues rather than immediate actions, for the same
 reason: MapRoulette's task endpoints can be slow, and doing a whole batch
 one popup at a time, waiting on each request, isn't a great way to work.
 **Process all pending N** (near the top of the MapRoulette panel) runs
-every queue below - add, delete, boundary-edit, split - one after another
-in a single click, so you don't have to hunt down each queue's own button;
-each queue still asks for its own confirmation exactly where it normally
-would (add doesn't need one, the rest do).
+every queue below - add, delete, boundary-edit, split, replace, combine -
+one after another in a single click, so you don't have to hunt down each
+queue's own button; each queue still asks for its own confirmation exactly
+where it normally would (add doesn't need one, the rest do).
 
 - **Adding**: every new, unlinked area (drawn, split, or combined) is
   automatically queued to be added — it shows a green dashed outline on the
@@ -247,10 +247,18 @@ separated only by a hairline gap, e.g. two pieces from an earlier split),
 or it's rejected with an explanation rather than producing a
 `MultiPolygon`.
 
-The constituent areas' MapRoulette tasks (if any) are left untouched
-remotely — combining is local-only until you act on the result — and the
-merged result is automatically queued to be added as its own new task (see
-"Per-area actions" above), or use "Add now" on it to link it right away.
+The merge itself happens locally right away — the merged area shows a
+purple dashed outline and is off-limits to other structural actions (split,
+edit boundary, another combine) until its group is processed or undone.
+If none of the constituents were linked to a MapRoulette task, the merged
+area is just queued for adding like any other new area (see "Per-area
+actions" above), or use "Add now" on it to link it right away. If one or
+more constituents *were* linked, nothing happens to MapRoulette until you
+click **Process combine queue N** (in the MapRoulette panel): it deletes
+every constituent's task and creates one new task for the merged area,
+one combine group at a time — the same delete-then-create mechanic split
+and replace already use, since there's no in-place merge on MapRoulette's
+API.
 
 ### Editing a boundary (drag to reshape)
 

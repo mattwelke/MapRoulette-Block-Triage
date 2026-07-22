@@ -52,6 +52,7 @@
   function structuralBlockReason(entry) {
     if (entry.pendingSplitGroup != null) return "queued for a pending split";
     if (entry.pendingReplace) return "queued for a pending replace";
+    if (entry.pendingCombineGroup != null) return "queued for a pending combine";
     return mrBlockReason(entry);
   }
 
@@ -62,6 +63,7 @@
   // pending.
   function splitBlockReason(entry) {
     if (entry.pendingReplace) return "queued for a pending replace";
+    if (entry.pendingCombineGroup != null) return "queued for a pending combine";
     return mrBlockReason(entry);
   }
 
@@ -117,6 +119,18 @@
   // entry carries entry.pendingReplace = true until its group is processed.
   /** @type {Map<string, {originalSnapshots: object[], newSnapshots: object[]}>} */
   let replaceQueue = new Map();
+  // Groups queued by "Combine areas…", keyed by a synthetic group id, mapped
+  // to the snapshots of the constituent areas that were merged and the
+  // single snapshot of the merged result - like split/replace, the local
+  // merge already happened by the time a group lands here; only the
+  // MapRoulette sync (delete the constituents' tasks, create a task for the
+  // merged area) is deferred to processing. The merged entry carries
+  // entry.pendingCombineGroup until its group is processed. If none of the
+  // constituents were linked, there's nothing to delete - the merged area
+  // is queued into mrAddQueue instead (same as a plain new area), and
+  // processing this group is a no-op beyond clearing the pending flag.
+  /** @type {Map<string, {originalSnapshots: object[], newSnapshot: object}>} */
+  let combineQueue = new Map();
   const MR_QUEUE_PACE_MS = 400; // pause between requests when processing any of the queues
   let mrQuickQueueDeleteMode = localStorage.getItem("block-triage:mrQuickQueueDeleteMode") === "true";
 
@@ -421,6 +435,8 @@
   const mrSplitQueueStatusEl = document.getElementById("mr-split-queue-status");
   const mrReplaceQueueBtn = document.getElementById("mr-replace-queue-btn");
   const mrReplaceQueueStatusEl = document.getElementById("mr-replace-queue-status");
+  const mrCombineQueueBtn = document.getElementById("mr-combine-queue-btn");
+  const mrCombineQueueStatusEl = document.getElementById("mr-combine-queue-status");
   const mrProcessAllBtn = document.getElementById("mr-process-all-btn");
   const mrProcessAllStatusEl = document.getElementById("mr-process-all-status");
   const mrQuickQueueCheckbox = document.getElementById("mr-quick-queue-checkbox");
@@ -434,12 +450,14 @@
   updateMrEditQueueButton();
   updateSplitQueueButton();
   updateReplaceQueueButton();
+  updateCombineQueueButton();
   scheduleMrLockPoll();
   mrQueueBtn.addEventListener("click", processMrDeleteQueue);
   mrAddQueueBtn.addEventListener("click", processMrAddQueue);
   mrEditQueueBtn.addEventListener("click", processMrEditQueue);
   mrSplitQueueBtn.addEventListener("click", processSplitQueue);
   mrReplaceQueueBtn.addEventListener("click", processReplaceQueue);
+  mrCombineQueueBtn.addEventListener("click", processCombineQueue);
   mrProcessAllBtn.addEventListener("click", processAllQueues);
 
   mrApiKeyInput.addEventListener("change", () => {
@@ -624,7 +642,8 @@
   // "Process all pending" can be clicked once instead of hunting down each
   // queue's own button individually.
   function updateProcessAllButton() {
-    const total = mrDeleteQueue.size + mrAddQueue.size + mrEditQueue.size + splitQueue.size + replaceQueue.size;
+    const total =
+      mrDeleteQueue.size + mrAddQueue.size + mrEditQueue.size + splitQueue.size + replaceQueue.size + combineQueue.size;
     mrProcessAllBtn.textContent = `Process all pending (${total})`;
     mrProcessAllBtn.disabled = total === 0;
   }
@@ -640,6 +659,7 @@
     await processMrEditQueue();
     await processSplitQueue();
     await processReplaceQueue();
+    await processCombineQueue();
     updateProcessAllButton();
     mrProcessAllStatusEl.textContent = "Done — see each queue's own status below for details.";
   }
@@ -1245,6 +1265,9 @@
     replaceQueue = new Map();
     updateReplaceQueueButton();
     mrReplaceQueueStatusEl.textContent = "";
+    combineQueue = new Map();
+    updateCombineQueueButton();
+    mrCombineQueueStatusEl.textContent = "";
     if (editState) cancelEditBoundary();
 
     parsed.features.forEach((feature, idx) => {
@@ -1310,6 +1333,9 @@
     }
     if (entry.pendingReplace) {
       return { color: "#00838f", weight: 4, dashArray: "2 4", fillColor: color, fillOpacity: 0.35 };
+    }
+    if (entry.pendingCombineGroup != null) {
+      return { color: "#9c27b0", weight: 4, dashArray: "2 4", fillColor: color, fillOpacity: 0.35 };
     }
     if (mrDeleteQueue.has(entry.id)) {
       return { color: "#b71c1c", weight: 4, dashArray: "2 4", fillColor: color, fillOpacity: 0.35 };
@@ -1406,6 +1432,7 @@
     const splitPending = splitGroupId != null;
     const splitGroup = splitPending ? splitQueue.get(splitGroupId) : null;
     const replacePending = entry.pendingReplace === true;
+    const combinePending = entry.pendingCombineGroup != null;
     const div = document.createElement("div");
     div.innerHTML = `
       <div><strong>Feature #${entry.idx}</strong></div>
@@ -1433,14 +1460,19 @@
           : ""
       }
       ${
-        lockReason || replacePending
+        combinePending
+          ? `<div class="mr-locked-note">Queued for a pending combine — use Undo to reverse it, or process the combine queue to apply it.</div>`
+          : ""
+      }
+      ${
+        lockReason || replacePending || combinePending
           ? ""
           : splitPending
           ? `<div class="popup-actions"><button data-split>Split&hellip;</button><button data-drop-split-piece>Drop this piece</button></div>`
           : `<div class="popup-actions"><button data-split>Split&hellip;</button><button data-edit-boundary>Edit boundary&hellip;</button></div>`
       }
       ${
-        lockReason || splitPending || replacePending
+        lockReason || splitPending || replacePending || combinePending
           ? ""
           : `<div class="popup-actions">
               <button data-mr-action></button>
@@ -1486,7 +1518,7 @@
       });
     }
 
-    if (lockReason || splitPending || replacePending) {
+    if (lockReason || splitPending || replacePending || combinePending) {
       presentPopup(entry, div);
       return;
     }
@@ -2145,27 +2177,39 @@
     const { area, compactness } = computeMetrics(combined);
 
     const originalSnapshots = targetEntries.map(snapshotEntry);
-    originalSnapshots.forEach((snap) => removeEntry(snap.id));
+    originalSnapshots.forEach((snap) => {
+      removeEntry(snap.id);
+      mrAddQueue.delete(snap.id);
+    });
 
+    const groupId = hashString(JSON.stringify(originalSnapshots.map((s) => s.id)) + ":" + newFeatureCounter++);
     const newSnapshot = {
       id: hashString(JSON.stringify(combined.geometry) + ":" + newFeatureCounter++),
       idx: originalSnapshots.map((s) => s.idx).join("+"),
       feature: combined,
       area,
       compactness,
-      // The constituent areas' MapRoulette tasks (if any) are left untouched
-      // remotely, and the merged result starts unlinked - use its own "Add
-      // task to challenge" button if you want to link it to a fresh task.
       mrTaskId: null,
       mrTaskStatus: null,
       mrLocked: false,
       mrActiveLockedBy: null,
+      pendingCombineGroup: groupId,
     };
-    mrAddQueue.add(newSnapshot.id);
+    // Only auto-queue the merged area for adding if none of the constituents
+    // had a MapRoulette task of their own - if any did, processing the
+    // combine queue deletes them and creates the merged area's task
+    // directly instead, bypassing the add queue entirely (same reasoning
+    // as split/replace).
+    const anyLinked = originalSnapshots.some((s) => s.mrTaskId);
+    if (!anyLinked) {
+      mrAddQueue.add(newSnapshot.id);
+      updateMrAddQueueButton();
+    }
     restoreEntryFromSnapshot(newSnapshot);
-    updateMrAddQueueButton();
+    combineQueue.set(groupId, { originalSnapshots, newSnapshot });
+    updateCombineQueueButton();
 
-    undoStack.push({ type: "combine", originals: originalSnapshots, newSnapshot });
+    undoStack.push({ type: "combine", groupId, originals: originalSnapshots, newSnapshot });
     redoStack = [];
     updateUndoRedoButtons();
     updateStats();
@@ -2178,7 +2222,12 @@
   function undoCombine(action) {
     removeEntry(action.newSnapshot.id);
     mrAddQueue.delete(action.newSnapshot.id);
-    action.originals.forEach((snap) => restoreEntryFromSnapshot(snap));
+    combineQueue.delete(action.groupId);
+    updateCombineQueueButton();
+    action.originals.forEach((snap) => {
+      restoreEntryFromSnapshot(snap);
+      if (!snap.mrTaskId) mrAddQueue.add(snap.id);
+    });
     updateMrAddQueueButton();
     updateStats();
     renderList();
@@ -2187,14 +2236,97 @@
   }
 
   function redoCombine(action) {
-    action.originals.forEach((snap) => removeEntry(snap.id));
-    mrAddQueue.add(action.newSnapshot.id);
+    action.originals.forEach((snap) => {
+      removeEntry(snap.id);
+      mrAddQueue.delete(snap.id);
+    });
+    action.newSnapshot.pendingCombineGroup = action.groupId;
+    if (!action.originals.some((s) => s.mrTaskId)) {
+      mrAddQueue.add(action.newSnapshot.id);
+    }
     restoreEntryFromSnapshot(action.newSnapshot);
+    combineQueue.set(action.groupId, { originalSnapshots: action.originals, newSnapshot: action.newSnapshot });
+    updateCombineQueueButton();
     updateMrAddQueueButton();
     updateStats();
     renderList();
     selectFeature(action.newSnapshot.id);
     panTo(entries.get(action.newSnapshot.id));
+  }
+
+  function updateCombineQueueButton() {
+    mrCombineQueueBtn.textContent = `Process combine queue (${combineQueue.size})`;
+    mrCombineQueueBtn.disabled = combineQueue.size === 0;
+    updateProcessAllButton();
+  }
+
+  // Deletes every task-linked constituent in a combine-group, then creates a
+  // fresh task for the merged area - the same "delete old(s), create new"
+  // mechanic split/replace use, just N-to-1. A no-op remotely if none of the
+  // constituents were linked (mrAddQueue handles creating the merged area's
+  // task in that case instead - see doCombine/processCombineQueue).
+  async function syncCombineToMapRoulette(originalSnapshots, newSnapshot) {
+    for (const snap of originalSnapshots) {
+      if (!snap.mrTaskId) continue;
+      try {
+        await mrDeleteTask(snap.mrTaskId);
+      } catch (err) {
+        alert(
+          `Combine completed locally, but removing MapRoulette task ${snap.mrTaskId} failed: ${err.message}. It may still exist on MapRoulette; you may want to remove it manually.`
+        );
+      }
+    }
+    const liveEntry = entries.get(newSnapshot.id);
+    if (!liveEntry || liveEntry.mrTaskId) return; // gone, or already linked some other way, before this ran
+    try {
+      const created = await mrCreateTask(liveEntry.feature);
+      newSnapshot.mrTaskId = created.id;
+      liveEntry.mrTaskId = created.id;
+      liveEntry.layer.setStyle(styleFor(liveEntry));
+    } catch (err) {
+      alert(
+        `One or more original tasks were removed, but creating a new task for the merged area failed: ${err.message}. Use that area's "Add now" button to retry.`
+      );
+    }
+  }
+
+  // Syncs every queued combine to MapRoulette, one group at a time with the
+  // same pacing as the other queues. Doesn't do a live lock recheck first
+  // (unlike the delete/edit queues) since the constituents are already gone
+  // locally by this point - there's no entry left to refresh against; a
+  // task that became locked in the meantime just fails the delete below and
+  // gets reported like any other failure.
+  async function processCombineQueue() {
+    const groupIds = Array.from(combineQueue.keys());
+    if (groupIds.length === 0) return;
+    const ok = confirm(
+      `This will sync ${groupIds.length} combine${
+        groupIds.length === 1 ? "" : "s"
+      } to MapRoulette now, deleting the original tasks (where linked) and creating a new one for the merged area, one combine at a time. Continue?`
+    );
+    if (!ok) return;
+
+    mrCombineQueueBtn.disabled = true;
+    let done = 0;
+    for (const groupId of groupIds) {
+      done++;
+      const { originalSnapshots, newSnapshot } = combineQueue.get(groupId);
+      combineQueue.delete(groupId);
+      newSnapshot.pendingCombineGroup = null;
+      const e = entries.get(newSnapshot.id);
+      if (e) {
+        e.pendingCombineGroup = null;
+        e.layer.setStyle(styleFor(e));
+      }
+      mrCombineQueueStatusEl.textContent = `Syncing combine ${done} of ${groupIds.length}…`;
+      if (originalSnapshots.some((s) => s.mrTaskId)) {
+        await syncCombineToMapRoulette(originalSnapshots, newSnapshot);
+      }
+      renderList();
+      if (done < groupIds.length) await sleep(MR_QUEUE_PACE_MS);
+    }
+    mrCombineQueueStatusEl.textContent = `Done — synced ${done} combine${done === 1 ? "" : "s"}.`;
+    updateCombineQueueButton();
   }
 
   // --- Replace ---
@@ -2792,6 +2924,7 @@
       const isMrEditQueued = mrEditQueue.has(id);
       const isSplitQueued = e.pendingSplitGroup != null;
       const isReplaceQueued = e.pendingReplace === true;
+      const isMrCombineQueued = e.pendingCombineGroup != null;
       const row = document.createElement("div");
       row.className =
         "feature-row" +
@@ -2802,7 +2935,8 @@
         (isMrAddQueued ? " mr-add-queued" : "") +
         (isMrEditQueued ? " mr-edit-queued" : "") +
         (isSplitQueued ? " mr-split-queued" : "") +
-        (isReplaceQueued ? " mr-replace-queued" : "");
+        (isReplaceQueued ? " mr-replace-queued" : "") +
+        (isMrCombineQueued ? " mr-combine-queued" : "");
       row.dataset.id = id;
       row.innerHTML = `
         <span class="status-dot ${category(e)}"></span>
