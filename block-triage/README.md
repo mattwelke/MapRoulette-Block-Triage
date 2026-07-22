@@ -590,6 +590,19 @@ caching (`no-cache` despite the name doesn't mean "don't cache" - that's
 Netlify answers with a 304 if nothing changed or the new content if it
 did, so it fixes staleness without disabling caching entirely.
 
+**Version tracking.** `build.js` also stamps each build with a short
+version string and a build timestamp, written to `dist/version.js`
+(`window.__BLOCK_TRIAGE_VERSION__ = { version, builtAt }`) - it prefers
+Netlify's own `COMMIT_REF` env var (the exact commit being deployed),
+falling back to `git rev-parse --short HEAD` for any other static host,
+and "unknown" if neither is available. All three pages load this via a
+plain `<script src="version.js">` tag (not `fetch()`, since that can be
+blocked for local files) and, if present, use it to set a native tooltip
+on the page title - hover it to see which build you're looking at. It's
+deliberately not prominent; nothing is shown at all when `version.js`
+doesn't exist, which is always the case running the files straight off
+disk (dev, or the test suite) rather than through a deploy.
+
 ## PWA / Add to Home Screen
 
 `manifest.json` (linked from all three pages, along with a `theme-color`
