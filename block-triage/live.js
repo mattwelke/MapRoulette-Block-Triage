@@ -1142,7 +1142,7 @@
       // line should reflect current reality.
       if (mrLockPollEligible()) {
         setMrLockPollStatus(
-          `Last checked ${new Date().toLocaleTimeString()} — ` +
+          `Last checked ${new Date().toLocaleTimeString()}\n` +
             (activeLockCount > 0
               ? `${activeLockCount} task${activeLockCount === 1 ? "" : "s"} currently checked out on MapRoulette.`
               : `no tasks currently checked out on MapRoulette.`)
