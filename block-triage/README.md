@@ -479,6 +479,33 @@ whose bounding boxes overlap at all, which keeps it fast even with
 thousands of areas loaded, since most of them aren't anywhere near each
 other.
 
+## Low density exemption
+
+Some areas are legitimately small because the underlying density is low,
+not because anything's actually wrong with the boundary - a genuinely
+sparse block shouldn't keep getting flagged as too small. An area's popup
+(in both `local.html` and `live.html`) has a **Low density (exempt from
+...)** checkbox for exactly this: checking it exempts that area from the
+small-area part of whichever flagging rule applies -
+`local.html`'s small-area threshold specifically (its separate
+compactness/skinny-shape check still applies on its own), or
+`live.html`'s undersized/needs-combine verdict (oversized/needs-split is
+unaffected, since that isn't a density concern). An exempted area is
+colored the same as any other area with no action suggested.
+
+It's stored as a `_blockTriageLowDensity: true` feature property, the same
+underscore-prefixed convention `local.html`'s `_blockTriageStatus` uses -
+in `local.html` it round-trips through export/import (and `localStorage`,
+same as kept/flagged decisions); in `live.html` it's included when a task
+is created and read back out of the task's own properties the next time a
+challenge is loaded, so the mark survives across sessions either way.
+Combining areas carries the mark forward if any constituent had it;
+splitting an area carries it to every resulting piece, since they're all
+still part of the same physical, low-density area. In `live.html`,
+toggling the mark on an already-linked task queues a re-sync (reusing the
+same delete-then-recreate mechanism the boundary-edit queue uses) since
+there's no in-place property update used anywhere in this app.
+
 ## Why compactness, not just area
 
 Some artifacts (thin slivers between the two carriageways of a divided
