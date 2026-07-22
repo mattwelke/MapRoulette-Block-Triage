@@ -302,7 +302,13 @@
   // miss just eyeballing the map. Off by default, and not kept live as you
   // edit - toggling it off and back on recomputes from scratch, which is
   // simple and avoids re-running this on every single edit.
-  const overlapRenderer = L.svg().addTo(map);
+  //
+  // The renderer itself is created lazily, on first use, rather than eagerly
+  // at load - an L.SVG/L.Renderer registers with the map and gets its
+  // transform recalculated on every pan/zoom for as long as it's attached,
+  // even with nothing drawn on it. A session that never checks this box
+  // shouldn't pay any part of that cost.
+  let overlapRenderer = null;
   const OVERLAP_COLOR = "#e91e63"; // not used anywhere else in this app's palette
   let overlapLayerGroup = null;
 
@@ -333,6 +339,7 @@
 
   function showOverlaps() {
     hideOverlaps();
+    if (!overlapRenderer) overlapRenderer = L.svg().addTo(map);
     const overlapFeatures = computeOverlapFeatures();
     overlapLayerGroup = L.geoJSON(turf.featureCollection(overlapFeatures), {
       interactive: false,
