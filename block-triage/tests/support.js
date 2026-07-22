@@ -98,7 +98,13 @@ function mrChallengeSampleTasks() {
 // test can inspect (state.createdTasks, state.deletedTaskIds) and mutate
 // (e.g. override state.deleteStatusCode to simulate a failure).
 async function routeMrChallenge(page, challengeId, tasks) {
-  const state = { createdTasks: [], deletedTaskIds: [], nextCreatedId: 9000, nextDeleteStatus: null };
+  const state = {
+    createdTasks: [],
+    deletedTaskIds: [],
+    nextCreatedId: 9000,
+    nextDeleteStatus: null, // one-shot: fails the very next DELETE, then resets to null (so a retry after it succeeds)
+    deleteAlwaysFailsStatus: null, // persistent: every DELETE fails with this status, for exercising genuine retry exhaustion
+  };
 
   await page.route(`https://maproulette.org/api/v2/challenge/${challengeId}/tasks**`, async (route) => {
     const url = new URL(route.request().url());
@@ -126,6 +132,14 @@ async function routeMrChallenge(page, challengeId, tasks) {
     if (route.request().method() !== "DELETE") return route.continue();
     const m = route.request().url().match(/\/task\/(\d+)$/);
     state.deletedTaskIds.push(m ? m[1] : null);
+    if (state.deleteAlwaysFailsStatus) {
+      await route.fulfill({
+        status: state.deleteAlwaysFailsStatus,
+        contentType: "application/json",
+        body: JSON.stringify({ status: "Error" }),
+      });
+      return;
+    }
     if (state.nextDeleteStatus && state.nextDeleteStatus !== 200) {
       const status = state.nextDeleteStatus;
       state.nextDeleteStatus = null;

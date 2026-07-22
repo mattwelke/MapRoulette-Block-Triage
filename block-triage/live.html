@@ -130,6 +130,15 @@
           </div>
           <button id="mr-combine-queue-btn" disabled>Process combine queue (0)</button>
           <div id="mr-combine-queue-status" class="muted"></div>
+          <hr>
+          <div class="muted">
+            If deleting a task ever fails even after a few automatic retries
+            (during a split, replace, or combine sync), it lands here instead
+            of just disappearing - a leftover task with nowhere else to
+            track it. Processing this queue keeps trying to delete them.
+          </div>
+          <button id="mr-orphaned-delete-queue-btn" disabled>Process orphaned deletes (0)</button>
+          <div id="mr-orphaned-delete-queue-status" class="muted"></div>
         </div>
 
         <div id="thresholds">

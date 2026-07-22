@@ -22,15 +22,23 @@ runTest("mr-queue-process: bulk confirm, paced sequential deletes, partial failu
 
   await routeMrChallenge(page, CHALLENGE_ID, mrChallengeSampleTasks());
 
-  // Fail the 2nd delete request deliberately, succeed on the others - this
-  // override is registered after routeMrChallenge's own DELETE handler, so
-  // it takes precedence.
+  // Persistently fail every delete attempt (including mrRequest's own
+  // internal retries) for the 2nd distinct task id attempted, succeed for
+  // the rest - this override is registered after routeMrChallenge's own
+  // DELETE handler, so it takes precedence.
   let requestOrder = [];
+  const seenTaskIds = [];
+  let failingTaskId = null;
   await page.route(/https:\/\/maproulette\.org\/api\/v2\/task\/\d+$/, async (route) => {
     if (route.request().method() !== "DELETE") return route.continue();
     const m = route.request().url().match(/\/task\/(\d+)/);
-    requestOrder.push(m ? m[1] : null);
-    if (requestOrder.length === 2) {
+    const taskId = m ? m[1] : null;
+    requestOrder.push(taskId);
+    if (!seenTaskIds.includes(taskId)) {
+      seenTaskIds.push(taskId);
+      if (seenTaskIds.length === 2) failingTaskId = taskId;
+    }
+    if (taskId === failingTaskId) {
       await route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ status: "Error" }) });
     } else {
       await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ status: "OK" }) });
@@ -68,7 +76,9 @@ runTest("mr-queue-process: bulk confirm, paced sequential deletes, partial failu
   assertEqual(dialogs.length, 1, "processing should ask for exactly one bulk confirm");
   assert(dialogs[0].includes("3 tasks"), `expected the confirm to mention 3 tasks, got: ${dialogs[0]}`);
 
-  await page.waitForTimeout(4000); // 3 items paced ~400ms apart, generous margin
+  // 3 items paced ~400ms apart, plus the failing item's own retries with
+  // backoff (mrRequest retries twice more before giving up) - generous margin.
+  await page.waitForTimeout(6000);
   const elapsed = Date.now() - startTime;
   assert(elapsed > 700, `expected pacing between deletes to take noticeably longer than an instant batch, elapsed=${elapsed}ms`);
 
@@ -79,12 +89,16 @@ runTest("mr-queue-process: bulk confirm, paced sequential deletes, partial failu
   );
   assertEqual(
     await page.$eval("#mr-queue-btn", (el) => el.textContent),
-    "Process delete queue (0)",
-    "queue should be empty after processing (the failed item is unqueued, just still linked)"
+    "Process delete queue (1)",
+    "the failed item should stay queued to retry next time, the 2 that succeeded should be gone"
   );
 
   assert((await page.$eval("#stats", (el) => el.textContent)).includes("Total: 8"), "Total should drop by 2 (the 2 that succeeded)");
-  assertEqual(requestOrder.length, 3, `expected exactly 3 delete attempts, got: ${JSON.stringify(requestOrder)}`);
+  assert(
+    requestOrder.length >= 4,
+    `expected more than 3 delete attempts (the failing task gets retried), got: ${JSON.stringify(requestOrder)}`
+  );
+  assertEqual(seenTaskIds.length, 3, `expected exactly 3 distinct tasks attempted, got: ${JSON.stringify(seenTaskIds)}`);
 
   assertNoPageErrors(page);
   await browser.close();
