@@ -7,6 +7,7 @@
   --normal: #3388ff;
   --oversized: #e64a19;
   --undersized: #fbc02d;
+  --overlap: #e91e63;
   --border: #ddd;
   --bg-sidebar: #fafafa;
 }
@@ -325,6 +326,7 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 .swatch.undersized { background: var(--undersized); }
 .swatch.locked { background: var(--locked); }
 .swatch.active-lock { background: var(--active-lock); }
+.swatch.overlap { background: var(--overlap); }
 
 kbd {
   background: #eee;

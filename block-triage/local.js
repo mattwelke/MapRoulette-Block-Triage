@@ -113,6 +113,62 @@
     }).addTo(map);
   }
 
+  // Highlights areas that geometrically overlap each other - usually a
+  // data-quality problem (two areas covering the same ground), and easy to
+  // miss just eyeballing the map. Off by default, and not kept live as you
+  // edit - toggling it off and back on recomputes from scratch, which is
+  // simple and avoids re-running this on every single edit.
+  const overlapRenderer = L.svg().addTo(map);
+  const OVERLAP_COLOR = "#e91e63"; // not used anywhere else in this app's palette
+  let overlapLayerGroup = null;
+
+  // Bounding-box pre-filter before the expensive exact intersection check -
+  // same reasoning as elsewhere in this app: with thousands of areas, an
+  // all-pairs bbox comparison (cheap) is fine, but running turf.intersect
+  // on every pair would not be.
+  function computeOverlapFeatures() {
+    const items = Array.from(entries.values());
+    const bboxes = items.map((e) => turf.bbox(e.feature));
+    const overlaps = [];
+    for (let i = 0; i < items.length; i++) {
+      for (let j = i + 1; j < items.length; j++) {
+        const a = bboxes[i];
+        const b = bboxes[j];
+        if (a[2] < b[0] || b[2] < a[0] || a[3] < b[1] || b[3] < a[1]) continue; // bounding boxes don't even overlap
+        let inter;
+        try {
+          inter = turf.intersect(turf.featureCollection([items[i].feature, items[j].feature]));
+        } catch (err) {
+          continue; // topology error on this pair - skip it rather than fail the whole check
+        }
+        if (inter && turf.area(inter) > 1) overlaps.push(inter); // >1 m² - ignore floating-point slivers
+      }
+    }
+    return overlaps;
+  }
+
+  function showOverlaps() {
+    hideOverlaps();
+    const overlapFeatures = computeOverlapFeatures();
+    overlapLayerGroup = L.geoJSON(turf.featureCollection(overlapFeatures), {
+      interactive: false,
+      renderer: overlapRenderer,
+      style: { color: OVERLAP_COLOR, weight: 2, fillColor: OVERLAP_COLOR, fillOpacity: 0.6 },
+    }).addTo(map);
+    overlapStatusEl.textContent =
+      overlapFeatures.length === 0
+        ? "No overlaps found."
+        : `${overlapFeatures.length} overlapping area${overlapFeatures.length === 1 ? "" : "s"} found.`;
+  }
+
+  function hideOverlaps() {
+    if (overlapLayerGroup) {
+      map.removeLayer(overlapLayerGroup);
+      overlapLayerGroup = null;
+    }
+    overlapStatusEl.textContent = "";
+  }
+
   const fileInput = document.getElementById("file-input");
   const newBlankBtn = document.getElementById("new-blank-btn");
   const fileNameEl = document.getElementById("file-name");
@@ -137,6 +193,13 @@
   const tabletPanelEl = document.getElementById("tablet-panel");
   const tabletPanelCloseBtn = document.getElementById("tablet-panel-close");
   const tabletPanelContentEl = document.getElementById("tablet-panel-content");
+  const highlightOverlapsCheckbox = document.getElementById("highlight-overlaps-checkbox");
+  const overlapStatusEl = document.getElementById("overlap-status");
+
+  highlightOverlapsCheckbox.addEventListener("change", () => {
+    if (highlightOverlapsCheckbox.checked) showOverlaps();
+    else hideOverlaps();
+  });
 
   // Matches the tablet range in style.css - on these viewports, an area's
   // popup content is shown in the fixed #tablet-panel (right edge,
@@ -450,6 +513,8 @@
   function buildEntries(parsed) {
     if (drawState) cancelDrawing();
     if (combineState) cancelCombine();
+    hideOverlaps();
+    highlightOverlapsCheckbox.checked = false;
     entries.forEach((e) => map.removeLayer(e.layer));
     entries = new Map();
     orderedIds = [];

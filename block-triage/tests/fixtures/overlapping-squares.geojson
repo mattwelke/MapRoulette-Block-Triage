@@ -1,0 +1,48 @@
+{
+  "type": "FeatureCollection",
+  "name": "overlapping-squares-test",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {},
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[
+          [-79.80, 43.45],
+          [-79.79, 43.45],
+          [-79.79, 43.46],
+          [-79.80, 43.46],
+          [-79.80, 43.45]
+        ]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {},
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[
+          [-79.795, 43.455],
+          [-79.785, 43.455],
+          [-79.785, 43.465],
+          [-79.795, 43.465],
+          [-79.795, 43.455]
+        ]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {},
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[
+          [-79.70, 43.45],
+          [-79.69, 43.45],
+          [-79.69, 43.46],
+          [-79.70, 43.46],
+          [-79.70, 43.45]
+        ]]
+      }
+    }
+  ]
+}

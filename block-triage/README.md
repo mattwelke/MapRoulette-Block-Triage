@@ -416,6 +416,29 @@ actually is. It only appears once you're zoomed in a lot (past zoom 18);
 at ordinary zoom levels it'd just be a hairline, so it's left out
 entirely rather than shown too thin to see.
 
+## Overlap check
+
+**Highlight overlapping areas** (sidebar, in both `local.html` and
+`live.html`) checks every currently-loaded area against every other one
+for actual geometric overlap - usually a data-quality problem, since two
+areas covering the same ground means something (a boundary, a split)
+isn't right. Overlapping regions are drawn in pink (`#e91e63`), a color
+not used anywhere else in this app, so they're unmistakable against the
+regular status colors.
+
+It's a snapshot, not a live overlay: it computes once when you turn it
+on, and doesn't recompute as you keep editing - toggle it off and back on
+to refresh after making changes. Loading a new file (or a new challenge,
+in live mode) automatically turns it off and clears the previous result,
+so you never end up looking at overlaps from a dataset that's no longer
+loaded.
+
+Checking is all-pairs, but a bounding-box check comes first - actually
+computing the precise intersection (`turf.intersect`) only runs for pairs
+whose bounding boxes overlap at all, which keeps it fast even with
+thousands of areas loaded, since most of them aren't anywhere near each
+other.
+
 ## Why compactness, not just area
 
 Some artifacts (thin slivers between the two carriageways of a divided

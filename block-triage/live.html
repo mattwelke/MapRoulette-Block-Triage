@@ -147,6 +147,16 @@
           <div><span class="swatch undersized"></span> Undersized (needs combine)</div>
           <div><span class="swatch locked"></span> Locked (already Fixed/Already Fixed on MapRoulette)</div>
           <div><span class="swatch active-lock"></span> Locked (checked out on MapRoulette right now)</div>
+          <div><span class="swatch overlap"></span> Overlap (when highlighted, below)</div>
+        </div>
+
+        <div id="overlap-check">
+          <h2>Overlap check</h2>
+          <label class="toggle-label" title="Computes overlaps between all currently loaded areas and highlights them. Not kept live - toggle it off and back on after edits to refresh.">
+            <input type="checkbox" id="highlight-overlaps-checkbox">
+            Highlight overlapping areas
+          </label>
+          <div class="muted" id="overlap-status"></div>
         </div>
 
         <div id="shortcuts">
