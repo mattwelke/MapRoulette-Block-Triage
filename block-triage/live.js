@@ -164,14 +164,14 @@
   // list of orphaned task ids to keep retrying independent of any area.
   /** @type {Set<number>} */
   let mrOrphanedDeleteQueue = new Set();
-  const MR_QUEUE_PACE_MS = 400; // pause between requests when processing any of the queues
   let mrQuickQueueDeleteMode = localStorage.getItem("block-triage:mrQuickQueueDeleteMode") === "true";
 
   // Caps how many MapRoulette API requests may be in flight at once, across
-  // every queue - each queue's own processing loop is already sequential
-  // internally, so this mostly matters once multiple queues are processed
-  // concurrently (e.g. "Process all pending"), keeping the combined request
-  // rate bounded rather than letting every queue hammer the API in parallel.
+  // every queue - every queue's own processing loop runs its items
+  // concurrently (see runConcurrently below), and "Process all pending" can
+  // have several queues going at once on top of that, so this is what
+  // actually keeps the combined request rate bounded rather than letting
+  // everything hammer the API in parallel with no ceiling.
   let mrMaxConcurrent = loadMrMaxConcurrent();
   let mrActiveRequests = 0;
   const mrSlotWaiters = [];
@@ -202,6 +202,29 @@
   function releaseMrSlot() {
     mrActiveRequests--;
     wakeMrWaitersIfRoom();
+  }
+
+  // Runs `worker` over every item in `items`, several at a time instead of
+  // one at a time - up to mrMaxConcurrent lanes, each pulling the next item
+  // off a shared index as soon as it finishes its current one. The actual
+  // HTTP concurrency is enforced independently by acquireMrSlot inside
+  // mrRequest regardless of how many lanes call into it at once, but pooling
+  // here too means a queue with far more items than mrMaxConcurrent doesn't
+  // kick off every item's bookkeeping (mutating shared counters, touching
+  // the DOM) in one synchronous burst - work stays spread out the same way
+  // the actual requests do.
+  async function runConcurrently(items, worker) {
+    let nextIndex = 0;
+    async function lane() {
+      while (nextIndex < items.length) {
+        const item = items[nextIndex++];
+        await worker(item);
+      }
+    }
+    const laneCount = Math.max(1, Math.min(mrMaxConcurrent, items.length));
+    await Promise.all(
+      Array.from({ length: laneCount }, () => lane())
+    );
   }
 
   // Background polling for "someone has this task locked" - MapRoulette's API
@@ -699,8 +722,15 @@
   }
 
   // Runs every queue's own processing function in turn - each already
-  // handles its own confirm dialog (or lack thereof) and pacing, so this is
-  // just a convenience that saves clicking each queue's button separately.
+  // handles its own confirm dialog (or lack thereof) and processes its own
+  // items concurrently internally (see runConcurrently), so this is mostly a
+  // convenience that saves clicking each queue's button separately. Queue
+  // *types* still run one after another rather than overlapping each other:
+  // an entry could in principle be referenced by more than one queue at once
+  // (e.g. queued for boundary-edit and also picked up by a bulk quick-delete
+  // click), and overlapping two queues that might touch the same entry's
+  // remote task risks a race that a single global request semaphore alone
+  // wouldn't prevent.
   async function processAllQueues() {
     mrProcessAllBtn.disabled = true;
     mrProcessAllStatusEl.textContent = "Processing every queue below…";
@@ -744,44 +774,46 @@
     const ids = Array.from(mrDeleteQueue);
     if (ids.length === 0) return;
     const ok = confirm(
-      `This will permanently delete ${ids.length} task${ids.length === 1 ? "" : "s"} from MapRoulette, one at a time. Continue?`
+      `This will permanently delete ${ids.length} task${
+        ids.length === 1 ? "" : "s"
+      } from MapRoulette, up to ${mrMaxConcurrent} at a time. Continue?`
     );
     if (!ok) return;
 
     mrQueueBtn.disabled = true;
+    // One recheck for the whole batch rather than one per item - the queue
+    // may have sat around a while, and someone could have picked up one of
+    // these tasks in the meantime; best-effort if it fails, since each
+    // delete attempt itself is still the final word either way.
+    try {
+      await refreshMrLockState();
+    } catch (err) {
+      // ignore - fall through with whatever lock state we already had
+    }
+
     let done = 0;
     let failed = 0;
     let skippedLocked = 0;
-    for (const id of ids) {
-      done++;
+    await runConcurrently(ids, async (id) => {
       mrDeleteQueue.delete(id);
       const entry = entries.get(id);
       if (!entry || !entry.mrTaskId) {
-        continue; // already gone or unlinked by some other means in the meantime
+        done++;
+        return; // already gone or unlinked by some other means in the meantime
       }
 
-      // Just-in-time recheck - the queue may have sat around a while, and
-      // someone could have picked up this exact task in the meantime. Only
-      // the lock endpoint is refetched (not a full reload), so this is
-      // cheap; best-effort if it fails, since the delete attempt itself is
-      // the final word either way.
-      try {
-        await refreshMrLockState();
-      } catch (err) {
-        // ignore - fall through with whatever lock state we already had
-      }
       const blockReason = mrBlockReason(entry);
       if (blockReason) {
+        done++;
         skippedLocked++;
         mrQueueStatusEl.textContent = `Skipped task ${entry.mrTaskId} (${done} of ${ids.length}): ${blockReason}.`;
         entry.layer.setStyle(styleFor(entry)); // drop the "queued" look, it's back to just linked
         updateStats();
         renderList();
-        if (done < ids.length) await sleep(MR_QUEUE_PACE_MS);
-        continue;
+        return;
       }
 
-      mrQueueStatusEl.textContent = `Deleting ${done} of ${ids.length} (task ${entry.mrTaskId})…`;
+      mrQueueStatusEl.textContent = `Deleting task ${entry.mrTaskId}… (${done} of ${ids.length} done so far)`;
       try {
         await mrDeleteTask(entry.mrTaskId);
         removeEntry(entry.id);
@@ -790,10 +822,10 @@
         mrDeleteQueue.add(id); // retries here are already exhausted - stays queued for the next pass instead of getting silently dropped
         entry.layer.setStyle(styleFor(entry));
       }
+      done++;
       updateStats();
       renderList();
-      if (done < ids.length) await sleep(MR_QUEUE_PACE_MS);
-    }
+    });
     const deleted = done - failed - skippedLocked;
     const parts = [`deleted ${deleted} of ${done}`];
     if (failed > 0) parts.push(`${failed} failed`);
@@ -812,9 +844,9 @@
   }
 
   // Creates every still-queued, still-unlinked area as a new MapRoulette
-  // task, one at a time with the same pacing as the delete queue. Creating
-  // tasks isn't destructive (unlike deleting), so this skips the bulk
-  // confirm the delete queue asks for.
+  // task, several at a time (see runConcurrently). Creating tasks isn't
+  // destructive (unlike deleting), so this skips the bulk confirm the
+  // delete queue asks for.
   async function processMrAddQueue() {
     const ids = Array.from(mrAddQueue);
     if (ids.length === 0) return;
@@ -822,15 +854,15 @@
     mrAddQueueBtn.disabled = true;
     let done = 0;
     let failed = 0;
-    for (const id of ids) {
-      done++;
+    await runConcurrently(ids, async (id) => {
       mrAddQueue.delete(id);
       const entry = entries.get(id);
       if (!entry || entry.mrTaskId) {
-        continue; // already linked or gone by some other means in the meantime
+        done++;
+        return; // already linked or gone by some other means in the meantime
       }
 
-      mrAddQueueStatusEl.textContent = `Adding ${done} of ${ids.length}…`;
+      mrAddQueueStatusEl.textContent = `Adding… (${done} of ${ids.length} done so far)`;
       try {
         const created = await mrCreateTask(entry.feature, entry.lowDensity);
         entry.mrTaskId = created.id;
@@ -839,9 +871,9 @@
         failed++;
         mrAddQueue.add(id); // retries here are already exhausted - stays queued for the next pass
       }
+      done++;
       renderList();
-      if (done < ids.length) await sleep(MR_QUEUE_PACE_MS);
-    }
+    });
     const added = done - failed;
     mrAddQueueStatusEl.textContent =
       failed === 0
@@ -859,74 +891,77 @@
   // Applies every queued boundary edit to MapRoulette: since there's no
   // in-place geometry update used here, this deletes the old task and
   // creates a fresh one with the edited shape - the same mechanic doSplit
-  // already uses for a linked area, just batched and paced like the other
-  // queues instead of happening immediately.
+  // already uses for a linked area, just batched (several at a time, see
+  // runConcurrently) instead of happening immediately.
   async function processMrEditQueue() {
     const ids = Array.from(mrEditQueue);
     if (ids.length === 0) return;
     const ok = confirm(
-      `This will delete and recreate ${ids.length} task${ids.length === 1 ? "" : "s"} on MapRoulette with their edited boundaries, one at a time. Continue?`
+      `This will delete and recreate ${ids.length} task${
+        ids.length === 1 ? "" : "s"
+      } on MapRoulette with their edited boundaries, up to ${mrMaxConcurrent} at a time. Continue?`
     );
     if (!ok) return;
 
     mrEditQueueBtn.disabled = true;
+    // One recheck for the whole batch rather than one per item - same
+    // reasoning as the delete queue.
+    try {
+      await refreshMrLockState();
+    } catch (err) {
+      // ignore - fall through with whatever lock state we already had
+    }
+
     let done = 0;
     let failed = 0;
     let skippedLocked = 0;
-    for (const id of ids) {
-      done++;
+    await runConcurrently(ids, async (id) => {
       mrEditQueue.delete(id);
       const entry = entries.get(id);
       if (!entry || !entry.mrTaskId) {
-        continue; // gone, or somehow unlinked by some other means in the meantime
+        done++;
+        return; // gone, or somehow unlinked by some other means in the meantime
       }
 
-      // Just-in-time recheck, same reasoning as the delete queue - the edit
-      // may have sat around a while.
-      try {
-        await refreshMrLockState();
-      } catch (err) {
-        // ignore - fall through with whatever lock state we already had
-      }
       const blockReason = mrBlockReason(entry);
       if (blockReason) {
+        done++;
         skippedLocked++;
         mrEditQueueStatusEl.textContent = `Skipped task ${entry.mrTaskId} (${done} of ${ids.length}): ${blockReason}.`;
         renderList();
-        if (done < ids.length) await sleep(MR_QUEUE_PACE_MS);
-        continue;
+        return;
       }
 
       const oldTaskId = entry.mrTaskId;
-      mrEditQueueStatusEl.textContent = `Updating ${done} of ${ids.length} (task ${oldTaskId})…`;
+      mrEditQueueStatusEl.textContent = `Updating task ${oldTaskId}… (${done} of ${ids.length} done so far)`;
       try {
         await mrDeleteTask(oldTaskId);
       } catch (err) {
+        done++;
         failed++;
         mrEditQueueStatusEl.textContent = `Failed to remove the old task ${oldTaskId} (${done} of ${ids.length}): ${err.message}. Left queued to retry.`;
         mrEditQueue.add(id); // nothing changed remotely yet - keep it queued
         renderList();
-        if (done < ids.length) await sleep(MR_QUEUE_PACE_MS);
-        continue;
+        return;
       }
       entry.mrTaskId = null; // the old task is gone remotely regardless of what happens next
       try {
         const created = await mrCreateTask(entry.feature, entry.lowDensity);
         entry.mrTaskId = created.id;
       } catch (err) {
+        done++;
         failed++;
         mrAddQueue.add(id); // old task is really gone - queue the new shape for adding instead of leaving it to a manual click
         mrEditQueueStatusEl.textContent = `Old task ${oldTaskId} removed, but creating its replacement failed (${done} of ${ids.length}): ${err.message}. Queued for adding to retry.`;
         entry.layer.setStyle(styleFor(entry));
         updateMrAddQueueButton();
         renderList();
-        if (done < ids.length) await sleep(MR_QUEUE_PACE_MS);
-        continue;
+        return;
       }
+      done++;
       entry.layer.setStyle(styleFor(entry));
       renderList();
-      if (done < ids.length) await sleep(MR_QUEUE_PACE_MS);
-    }
+    });
     const updated = done - failed - skippedLocked;
     const parts = [`updated ${updated} of ${done}`];
     if (failed > 0) parts.push(`${failed} failed`);
@@ -2044,14 +2079,13 @@
     const ok = confirm(
       `This will sync ${groupIds.length} split${
         groupIds.length === 1 ? "" : "s"
-      } to MapRoulette now, deleting the original task (where linked) and creating new ones for the resulting piece(s), one split at a time. Continue?`
+      } to MapRoulette now, deleting the original task (where linked) and creating new ones for the resulting piece(s), up to ${mrMaxConcurrent} splits at a time. Continue?`
     );
     if (!ok) return;
 
     mrSplitQueueBtn.disabled = true;
     let done = 0;
-    for (const groupId of groupIds) {
-      done++;
+    await runConcurrently(groupIds, async (groupId) => {
       const { originalSnapshot, newSnapshots } = splitQueue.get(groupId);
       splitQueue.delete(groupId);
       newSnapshots.forEach((snap) => {
@@ -2062,13 +2096,13 @@
           e.layer.setStyle(styleFor(e));
         }
       });
-      mrSplitQueueStatusEl.textContent = `Syncing split ${done} of ${groupIds.length}…`;
       if (originalSnapshot.mrTaskId) {
         await syncSplitToMapRoulette(originalSnapshot, newSnapshots);
       }
+      done++;
+      mrSplitQueueStatusEl.textContent = `Syncing splits… (${done} of ${groupIds.length} done so far)`;
       renderList();
-      if (done < groupIds.length) await sleep(MR_QUEUE_PACE_MS);
-    }
+    });
     mrSplitQueueStatusEl.textContent = `Done — synced ${done} split${done === 1 ? "" : "s"}.`;
     updateSplitQueueButton();
   }
@@ -2085,22 +2119,26 @@
       updateOrphanedDeleteQueueButton();
       return;
     }
-    for (const snap of newSnapshots) {
-      const liveEntry = entries.get(snap.id);
-      if (!liveEntry) continue; // this piece was removed/changed locally before the request resolved
-      try {
-        const created = await mrCreateTask(liveEntry.feature, liveEntry.lowDensity);
-        snap.mrTaskId = created.id;
-        liveEntry.mrTaskId = created.id;
-        liveEntry.layer.setStyle(styleFor(liveEntry));
-      } catch (err) {
-        // The old task is really gone regardless - queue this piece for
-        // adding instead of leaving it to a manual click.
-        mrAddQueue.add(liveEntry.id);
-        liveEntry.layer.setStyle(styleFor(liveEntry));
-        updateMrAddQueueButton();
-      }
-    }
+    // Each piece's create is independent of the others, so they run
+    // concurrently too rather than one at a time.
+    await Promise.all(
+      newSnapshots.map(async (snap) => {
+        const liveEntry = entries.get(snap.id);
+        if (!liveEntry) return; // this piece was removed/changed locally before the request resolved
+        try {
+          const created = await mrCreateTask(liveEntry.feature, liveEntry.lowDensity);
+          snap.mrTaskId = created.id;
+          liveEntry.mrTaskId = created.id;
+          liveEntry.layer.setStyle(styleFor(liveEntry));
+        } catch (err) {
+          // The old task is really gone regardless - queue this piece for
+          // adding instead of leaving it to a manual click.
+          mrAddQueue.add(liveEntry.id);
+          liveEntry.layer.setStyle(styleFor(liveEntry));
+          updateMrAddQueueButton();
+        }
+      })
+    );
   }
 
   function undoSplit(action) {
@@ -2395,18 +2433,22 @@
   // constituents were linked (mrAddQueue handles creating the merged area's
   // task in that case instead - see doCombine/processCombineQueue).
   async function syncCombineToMapRoulette(originalSnapshots, newSnapshot) {
-    for (const snap of originalSnapshots) {
-      if (!snap.mrTaskId) continue;
-      try {
-        await mrDeleteTask(snap.mrTaskId);
-      } catch (err) {
-        // mrRequest's own retries are already exhausted - nothing changed
-        // remotely for this one, just a deletion that still needs doing, so
-        // it's tracked on its own rather than alerted-and-forgotten.
-        mrOrphanedDeleteQueue.add(snap.mrTaskId);
-        updateOrphanedDeleteQueueButton();
-      }
-    }
+    // Each constituent's delete is independent of the others, so they run
+    // concurrently rather than one at a time.
+    await Promise.all(
+      originalSnapshots.map(async (snap) => {
+        if (!snap.mrTaskId) return;
+        try {
+          await mrDeleteTask(snap.mrTaskId);
+        } catch (err) {
+          // mrRequest's own retries are already exhausted - nothing changed
+          // remotely for this one, just a deletion that still needs doing, so
+          // it's tracked on its own rather than alerted-and-forgotten.
+          mrOrphanedDeleteQueue.add(snap.mrTaskId);
+          updateOrphanedDeleteQueueButton();
+        }
+      })
+    );
     const liveEntry = entries.get(newSnapshot.id);
     if (!liveEntry || liveEntry.mrTaskId) return; // gone, or already linked some other way, before this ran
     try {
@@ -2423,26 +2465,25 @@
     }
   }
 
-  // Syncs every queued combine to MapRoulette, one group at a time with the
-  // same pacing as the other queues. Doesn't do a live lock recheck first
-  // (unlike the delete/edit queues) since the constituents are already gone
-  // locally by this point - there's no entry left to refresh against; a
-  // task that became locked in the meantime just fails the delete below and
-  // gets reported like any other failure.
+  // Syncs every queued combine to MapRoulette, several groups at a time (see
+  // runConcurrently). Doesn't do a live lock recheck first (unlike the
+  // delete/edit queues) since the constituents are already gone locally by
+  // this point - there's no entry left to refresh against; a task that
+  // became locked in the meantime just fails the delete below and gets
+  // reported like any other failure.
   async function processCombineQueue() {
     const groupIds = Array.from(combineQueue.keys());
     if (groupIds.length === 0) return;
     const ok = confirm(
       `This will sync ${groupIds.length} combine${
         groupIds.length === 1 ? "" : "s"
-      } to MapRoulette now, deleting the original tasks (where linked) and creating a new one for the merged area, one combine at a time. Continue?`
+      } to MapRoulette now, deleting the original tasks (where linked) and creating a new one for the merged area, up to ${mrMaxConcurrent} combines at a time. Continue?`
     );
     if (!ok) return;
 
     mrCombineQueueBtn.disabled = true;
     let done = 0;
-    for (const groupId of groupIds) {
-      done++;
+    await runConcurrently(groupIds, async (groupId) => {
       const { originalSnapshots, newSnapshot } = combineQueue.get(groupId);
       combineQueue.delete(groupId);
       newSnapshot.pendingCombineGroup = null;
@@ -2451,13 +2492,13 @@
         e.pendingCombineGroup = null;
         e.layer.setStyle(styleFor(e));
       }
-      mrCombineQueueStatusEl.textContent = `Syncing combine ${done} of ${groupIds.length}…`;
       if (originalSnapshots.some((s) => s.mrTaskId)) {
         await syncCombineToMapRoulette(originalSnapshots, newSnapshot);
       }
+      done++;
+      mrCombineQueueStatusEl.textContent = `Syncing combines… (${done} of ${groupIds.length} done so far)`;
       renderList();
-      if (done < groupIds.length) await sleep(MR_QUEUE_PACE_MS);
-    }
+    });
     mrCombineQueueStatusEl.textContent = `Done — synced ${done} combine${done === 1 ? "" : "s"}.`;
     updateCombineQueueButton();
   }
@@ -2480,25 +2521,24 @@
     const ok = confirm(
       `This will permanently delete ${ids.length} orphaned MapRoulette task${
         ids.length === 1 ? "" : "s"
-      } left over from an earlier split, replace, or combine that failed to sync, one at a time. Continue?`
+      } left over from an earlier split, replace, or combine that failed to sync, up to ${mrMaxConcurrent} at a time. Continue?`
     );
     if (!ok) return;
 
     mrOrphanedDeleteQueueBtn.disabled = true;
     let done = 0;
     let failed = 0;
-    for (const taskId of ids) {
-      done++;
+    await runConcurrently(ids, async (taskId) => {
       mrOrphanedDeleteQueue.delete(taskId);
-      mrOrphanedDeleteQueueStatusEl.textContent = `Deleting ${done} of ${ids.length} (task ${taskId})…`;
+      mrOrphanedDeleteQueueStatusEl.textContent = `Deleting task ${taskId}… (${done} of ${ids.length} done so far)`;
       try {
         await mrDeleteTask(taskId);
       } catch (err) {
         failed++;
         mrOrphanedDeleteQueue.add(taskId);
       }
-      if (done < ids.length) await sleep(MR_QUEUE_PACE_MS);
-    }
+      done++;
+    });
     const deleted = done - failed;
     mrOrphanedDeleteQueueStatusEl.textContent =
       failed === 0
@@ -2697,34 +2737,41 @@
   // locked in the meantime just fails the delete below and gets reported
   // like any other failure, same as the pre-queue split used to work.
   async function syncReplaceToMapRoulette(originalSnapshots, newSnapshots) {
-    for (const snap of originalSnapshots) {
-      if (!snap.mrTaskId) continue;
-      try {
-        await mrDeleteTask(snap.mrTaskId);
-      } catch (err) {
-        // mrRequest's own retries are already exhausted - nothing changed
-        // remotely for this one, just a deletion that still needs doing, so
-        // it's tracked on its own rather than alerted-and-forgotten.
-        mrOrphanedDeleteQueue.add(snap.mrTaskId);
-        updateOrphanedDeleteQueueButton();
-      }
-    }
-    for (const snap of newSnapshots) {
-      const liveEntry = entries.get(snap.id);
-      if (!liveEntry) continue; // removed/changed locally before the request resolved
-      try {
-        const created = await mrCreateTask(liveEntry.feature, liveEntry.lowDensity);
-        snap.mrTaskId = created.id;
-        liveEntry.mrTaskId = created.id;
-        liveEntry.layer.setStyle(styleFor(liveEntry));
-      } catch (err) {
-        // The original(s) are already gone regardless - queue this
-        // replacement for adding instead of leaving it to a manual click.
-        mrAddQueue.add(liveEntry.id);
-        liveEntry.layer.setStyle(styleFor(liveEntry));
-        updateMrAddQueueButton();
-      }
-    }
+    // Each original's delete is independent of the others, so they run
+    // concurrently rather than one at a time.
+    await Promise.all(
+      originalSnapshots.map(async (snap) => {
+        if (!snap.mrTaskId) return;
+        try {
+          await mrDeleteTask(snap.mrTaskId);
+        } catch (err) {
+          // mrRequest's own retries are already exhausted - nothing changed
+          // remotely for this one, just a deletion that still needs doing, so
+          // it's tracked on its own rather than alerted-and-forgotten.
+          mrOrphanedDeleteQueue.add(snap.mrTaskId);
+          updateOrphanedDeleteQueueButton();
+        }
+      })
+    );
+    // Same for each replacement's create.
+    await Promise.all(
+      newSnapshots.map(async (snap) => {
+        const liveEntry = entries.get(snap.id);
+        if (!liveEntry) return; // removed/changed locally before the request resolved
+        try {
+          const created = await mrCreateTask(liveEntry.feature, liveEntry.lowDensity);
+          snap.mrTaskId = created.id;
+          liveEntry.mrTaskId = created.id;
+          liveEntry.layer.setStyle(styleFor(liveEntry));
+        } catch (err) {
+          // The original(s) are already gone regardless - queue this
+          // replacement for adding instead of leaving it to a manual click.
+          mrAddQueue.add(liveEntry.id);
+          liveEntry.layer.setStyle(styleFor(liveEntry));
+          updateMrAddQueueButton();
+        }
+      })
+    );
   }
 
   async function processReplaceQueue() {
@@ -2733,14 +2780,13 @@
     const ok = confirm(
       `This will replace ${groupIds.length} group${
         groupIds.length === 1 ? "" : "s"
-      } of areas now, deleting any linked MapRoulette tasks and creating new ones for the replacements, one group at a time. Continue?`
+      } of areas now, deleting any linked MapRoulette tasks and creating new ones for the replacements, up to ${mrMaxConcurrent} groups at a time. Continue?`
     );
     if (!ok) return;
 
     mrReplaceQueueBtn.disabled = true;
     let done = 0;
-    for (const groupId of groupIds) {
-      done++;
+    await runConcurrently(groupIds, async (groupId) => {
       const { originalSnapshots, newSnapshots } = replaceQueue.get(groupId);
       replaceQueue.delete(groupId);
       newSnapshots.forEach((snap) => {
@@ -2751,11 +2797,11 @@
           e.layer.setStyle(styleFor(e));
         }
       });
-      mrReplaceQueueStatusEl.textContent = `Replacing group ${done} of ${groupIds.length}…`;
       await syncReplaceToMapRoulette(originalSnapshots, newSnapshots);
+      done++;
+      mrReplaceQueueStatusEl.textContent = `Replacing groups… (${done} of ${groupIds.length} done so far)`;
       renderList();
-      if (done < groupIds.length) await sleep(MR_QUEUE_PACE_MS);
-    }
+    });
     mrReplaceQueueStatusEl.textContent = `Done — processed ${done} replace group${done === 1 ? "" : "s"}.`;
     updateReplaceQueueButton();
   }
