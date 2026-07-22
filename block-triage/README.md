@@ -137,11 +137,12 @@ challenge the moment you confirm it.
   you rely on it for anything real.
 - **Max concurrent requests** — caps how many MapRoulette API requests this
   tool will have in flight at once, across every queue (defaults to 3,
-  persists via `localStorage`). Each queue's own processing loop is already
-  sequential internally, so this mostly matters when multiple queues end up
-  being processed at the same time (e.g. via "Process all pending") — it
-  keeps the combined request rate bounded instead of letting every queue
-  hammer the API in parallel.
+  persists via `localStorage`). Every queue processes its own items several
+  at a time up to this cap, rather than one at a time, so raising it speeds
+  up processing a large queue; lowering it (e.g. to 1) goes back to fully
+  sequential if you'd rather be gentler on the API. Different queue *types*
+  (add, delete, split, ...) still run one after another, not overlapping
+  each other, even under **Process all pending**.
 - **Load challenge from MapRoulette** — pulls every task in the given
   Challenge ID directly from the API (paging through 500 at a time under
   the hood). Each task's geometry becomes an area here, stamped with
@@ -187,15 +188,15 @@ where it normally would (add doesn't need one, the rest do).
 - **Adding**: every new, unlinked area (drawn, split, or combined) is
   automatically queued to be added — it shows a green dashed outline on the
   map and in the list. **Process add queue N** (in the MapRoulette panel)
-  creates them all, one at a time with a short pause between each; no
-  confirmation is needed since creating a task isn't destructive. If you
+  creates them all, several at a time (see "Max concurrent requests" above);
+  no confirmation is needed since creating a task isn't destructive. If you
   don't want to wait for the batch, that area's popup's **Add now** button
   creates it right away instead (and drops it out of the queue).
 - **Removing**: clicking **Remove task from challenge** doesn't delete
   anything right away — it queues the removal (red dashed outline) and
   nothing is deleted until you process that queue. **Process delete queue
-  N** confirms once for the whole batch, then deletes them one at a time
-  with a short pause between each so as not to hammer the API.
+  N** confirms once for the whole batch, then deletes them several at a
+  time so as not to hammer the API without limit.
 
 Either way, whatever succeeds disappears from (or appears in) the map, the
 list, and the stats immediately. Every MapRoulette request is itself
@@ -210,9 +211,9 @@ removal stays linked and re-queued.
 new area — clicking **Split…**, drawing the cut, and finishing it
 immediately replaces the area with its resulting pieces (an orange dashed
 outline on the map and in the list). Only the MapRoulette side is queued:
-**Process split queue N** (in the MapRoulette panel) syncs it, one split at
-a time — if the area was task-linked, its old task is deleted and a new
-task is created for every piece still standing.
+**Process split queue N** (in the MapRoulette panel) syncs it, several
+splits at a time — if the area was task-linked, its old task is deleted
+and a new task is created for every piece still standing.
 
 While a split's pieces are still pending (not yet processed), each is
 off-limits to combining, editing its boundary, and quick queue-delete (all
@@ -260,9 +261,9 @@ actions" above), or use "Add now" on it to link it right away. If one or
 more constituents *were* linked, nothing happens to MapRoulette until you
 click **Process combine queue N** (in the MapRoulette panel): it deletes
 every constituent's task and creates one new task for the merged area,
-one combine group at a time — the same delete-then-create mechanic split
-and replace already use, since there's no in-place merge on MapRoulette's
-API.
+several combine groups at a time — the same delete-then-create mechanic
+split and replace already use, since there's no in-place merge on
+MapRoulette's API.
 
 ### Editing a boundary (drag to reshape)
 
@@ -282,9 +283,9 @@ doesn't touch MapRoulette right away — it queues the change (the area
 shows a blue dashed outline) since there's no in-place geometry update
 used here, only delete-then-recreate (the same mechanic split already uses
 for a linked area). **Process boundary-edit queue N** (in the MapRoulette
-panel) applies every queued edit, one at a time: deletes the old task and
-creates a new one with the edited shape. Editing an area that isn't linked
-yet is purely local — nothing to queue until you add it.
+panel) applies every queued edit, several at a time: deletes the old task
+and creates a new one with the edited shape. Editing an area that isn't
+linked yet is purely local — nothing to queue until you add it.
 
 ### Replacing areas
 
@@ -303,7 +304,7 @@ least one replacement drawn to finish.
 Only the MapRoulette side is queued: the replacement areas show a teal
 dashed outline until you run **Process replace queue N** (in the
 MapRoulette panel), which deletes any MapRoulette tasks the replaced areas
-had and creates new tasks for the replacements, one group at a time. While
+had and creates new tasks for the replacements, several groups at a time. While
 a replace is pending, its replacement areas are off-limits to everything
 else (combining, splitting, editing, quick queue-delete) until they're
 processed. Finishing a replace (the local swap) is a single undoable
