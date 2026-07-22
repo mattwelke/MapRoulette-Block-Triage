@@ -470,7 +470,8 @@ on, and doesn't recompute as you keep editing - toggle it off and back on
 to refresh after making changes. Loading a new file (or a new challenge,
 in live mode) automatically turns it off and clears the previous result,
 so you never end up looking at overlaps from a dataset that's no longer
-loaded.
+loaded. A session that never checks this box doesn't pay any cost for
+it existing - nothing related to it is set up until the first time you do.
 
 Checking is all-pairs, but a bounding-box check comes first - actually
 computing the precise intersection (`turf.intersect`) only runs for pairs
