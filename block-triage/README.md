@@ -198,9 +198,13 @@ where it normally would (add doesn't need one, the rest do).
   with a short pause between each so as not to hammer the API.
 
 Either way, whatever succeeds disappears from (or appears in) the map, the
-list, and the stats immediately. Anything that fails stays exactly as it
-was (unqueued, reported at the end so you know what to retry) — a failed
-add stays unlinked, a failed removal stays linked.
+list, and the stats immediately. Every MapRoulette request is itself
+retried a couple of times with a short backoff before it's treated as a
+failure at all (see "Retries and failure handling" below) — anything that
+still fails after that stays queued rather than being dropped, so the next
+time you process that queue (or click **Process all pending**), it tries
+again automatically; a failed add stays unlinked and re-queued, a failed
+removal stays linked and re-queued.
 
 **Splitting** applies locally right away, same as combining or drawing a
 new area — clicking **Split…**, drawing the cut, and finishing it
@@ -371,6 +375,33 @@ Some things worth knowing:
 - Every request carries a `From: Block Triage - tronnalegacy@pm.me`
   header, so it's identifiable on MapRoulette's end as coming from this
   tool rather than the official site/app.
+
+### Retries and failure handling
+
+Every MapRoulette request (create, delete, fetch) is retried automatically
+up to twice more (three attempts total) with a short, increasing delay if
+it fails with a network error, a `429` (rate limited), or a `5xx` — the
+kind of failure that's often just transient. A `4xx` other than `429`
+(bad auth, not found, a conflict) fails immediately instead, since retrying
+the same broken request won't fix it.
+
+If a request still fails after those retries, what happens next depends on
+what was being attempted:
+- **Add or delete queue**: the area stays queued (with its green or red
+  dashed outline) — the next time you process that queue, it tries again.
+- **Boundary-edit queue**: if deleting the old task failed, the edit stays
+  queued to retry in full. If the old task was deleted but creating its
+  replacement failed, the area is now genuinely unlinked, so it's queued
+  for adding instead.
+- **Split, replace, and combine**: same idea — if creating a piece's
+  replacement task fails after its original was already deleted, that
+  piece is queued for adding. If *deleting* an original's task fails, there's
+  no local area left to attach a retry to (the local change already
+  happened), so the task's bare ID lands in a dedicated **orphaned
+  deletes** queue instead of just being reported and forgotten — this is
+  what used to cause old, "deleted" areas to silently reappear as
+  duplicates on a later reload. **Process orphaned deletes N** (in the
+  MapRoulette panel) keeps retrying those.
 
 ## Tablets
 

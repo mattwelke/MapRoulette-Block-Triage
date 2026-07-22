@@ -60,25 +60,38 @@ runTest("maproulette-split: split applies locally right away even when the MapRo
   );
 
   // processSplitQueue deletes the original task first, then creates two new
-  // ones - fail that first delete deterministically to exercise the failure
-  // path without depending on real network conditions.
-  mrState.nextDeleteStatus = 500;
+  // ones - make that delete fail persistently (every attempt, including
+  // mrRequest's own internal retries) to exercise genuine retry exhaustion
+  // without depending on real network conditions.
+  mrState.deleteAlwaysFailsStatus = 500;
 
   await page.click("#mr-split-queue-btn");
-  await page.waitForTimeout(1500);
+  await page.waitForTimeout(3000); // mrRequest retries a couple of times with backoff before giving up
 
   assert(
     (await page.$eval("#stats", (el) => el.textContent)).includes("Total: 11"),
     "the local split should be unaffected by the remote sync outcome"
   );
   assert(
-    dialogs.some((d) => d.toLowerCase().includes("failed")),
-    `expected an alert about the failed MapRoulette sync, got dialogs: ${JSON.stringify(dialogs)}`
+    mrState.deletedTaskIds.length >= 2,
+    `expected more than one delete attempt (mrRequest's own retries), got: ${JSON.stringify(mrState.deletedTaskIds)}`
+  );
+  assertEqual(
+    dialogs.length,
+    1,
+    `expected only the one bulk-process confirm - a delete failure shouldn't alert separately anymore, it's tracked in the orphaned-deletes queue instead; got dialogs: ${JSON.stringify(
+      dialogs
+    )}`
   );
   assertEqual(
     await page.$eval("#mr-split-queue-btn", (el) => el.textContent),
     "Process split queue (0)",
     "the split queue should be empty after processing"
+  );
+  assertEqual(
+    await page.$eval("#mr-orphaned-delete-queue-btn", (el) => el.textContent),
+    "Process orphaned deletes (1)",
+    "the original task, which never got deleted, should land in the orphaned-deletes queue"
   );
 
   assertNoPageErrors(page);

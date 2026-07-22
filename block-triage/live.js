@@ -131,6 +131,15 @@
   // processing this group is a no-op beyond clearing the pending flag.
   /** @type {Map<string, {originalSnapshots: object[], newSnapshot: object}>} */
   let combineQueue = new Map();
+  // Raw MapRoulette task ids that still need deleting but have no local
+  // entry left to hang a retry off of - split/replace/combine already
+  // remove their originals' local entries immediately (before the remote
+  // sync runs), so if deleting one of those originals' tasks still fails
+  // after mrRequest's own retries are exhausted, there's nothing in
+  // `entries` to re-add to mrDeleteQueue. It lands here instead: a plain
+  // list of orphaned task ids to keep retrying independent of any area.
+  /** @type {Set<number>} */
+  let mrOrphanedDeleteQueue = new Set();
   const MR_QUEUE_PACE_MS = 400; // pause between requests when processing any of the queues
   let mrQuickQueueDeleteMode = localStorage.getItem("block-triage:mrQuickQueueDeleteMode") === "true";
 
@@ -437,6 +446,8 @@
   const mrReplaceQueueStatusEl = document.getElementById("mr-replace-queue-status");
   const mrCombineQueueBtn = document.getElementById("mr-combine-queue-btn");
   const mrCombineQueueStatusEl = document.getElementById("mr-combine-queue-status");
+  const mrOrphanedDeleteQueueBtn = document.getElementById("mr-orphaned-delete-queue-btn");
+  const mrOrphanedDeleteQueueStatusEl = document.getElementById("mr-orphaned-delete-queue-status");
   const mrProcessAllBtn = document.getElementById("mr-process-all-btn");
   const mrProcessAllStatusEl = document.getElementById("mr-process-all-status");
   const mrQuickQueueCheckbox = document.getElementById("mr-quick-queue-checkbox");
@@ -451,6 +462,7 @@
   updateSplitQueueButton();
   updateReplaceQueueButton();
   updateCombineQueueButton();
+  updateOrphanedDeleteQueueButton();
   scheduleMrLockPoll();
   mrQueueBtn.addEventListener("click", processMrDeleteQueue);
   mrAddQueueBtn.addEventListener("click", processMrAddQueue);
@@ -458,6 +470,7 @@
   mrSplitQueueBtn.addEventListener("click", processSplitQueue);
   mrReplaceQueueBtn.addEventListener("click", processReplaceQueue);
   mrCombineQueueBtn.addEventListener("click", processCombineQueue);
+  mrOrphanedDeleteQueueBtn.addEventListener("click", processOrphanedDeleteQueue);
   mrProcessAllBtn.addEventListener("click", processAllQueues);
 
   mrApiKeyInput.addEventListener("change", () => {
@@ -643,7 +656,13 @@
   // queue's own button individually.
   function updateProcessAllButton() {
     const total =
-      mrDeleteQueue.size + mrAddQueue.size + mrEditQueue.size + splitQueue.size + replaceQueue.size + combineQueue.size;
+      mrDeleteQueue.size +
+      mrAddQueue.size +
+      mrEditQueue.size +
+      splitQueue.size +
+      replaceQueue.size +
+      combineQueue.size +
+      mrOrphanedDeleteQueue.size;
     mrProcessAllBtn.textContent = `Process all pending (${total})`;
     mrProcessAllBtn.disabled = total === 0;
   }
@@ -660,6 +679,7 @@
     await processSplitQueue();
     await processReplaceQueue();
     await processCombineQueue();
+    await processOrphanedDeleteQueue();
     updateProcessAllButton();
     mrProcessAllStatusEl.textContent = "Done — see each queue's own status below for details.";
   }
@@ -736,7 +756,8 @@
         removeEntry(entry.id);
       } catch (err) {
         failed++;
-        entry.layer.setStyle(styleFor(entry)); // drop the "queued" look, it's back to just linked
+        mrDeleteQueue.add(id); // retries here are already exhausted - stays queued for the next pass instead of getting silently dropped
+        entry.layer.setStyle(styleFor(entry));
       }
       updateStats();
       renderList();
@@ -749,7 +770,7 @@
     mrQueueStatusEl.textContent =
       failed === 0 && skippedLocked === 0
         ? `Done — deleted ${deleted} task${deleted === 1 ? "" : "s"}.`
-        : `Done — ${parts.join(", ")}; anything not deleted is still linked locally (click "Remove task from challenge" on it again to retry).`;
+        : `Done — ${parts.join(", ")}; anything that failed is still queued to retry next time you process this queue.`;
     updateMrQueueButton();
   }
 
@@ -785,6 +806,7 @@
         entry.layer.setStyle(styleFor(entry));
       } catch (err) {
         failed++;
+        mrAddQueue.add(id); // retries here are already exhausted - stays queued for the next pass
       }
       renderList();
       if (done < ids.length) await sleep(MR_QUEUE_PACE_MS);
@@ -793,7 +815,7 @@
     mrAddQueueStatusEl.textContent =
       failed === 0
         ? `Done — added ${added} task${added === 1 ? "" : "s"}.`
-        : `Done — added ${added} of ${done}; ${failed} failed and ${failed === 1 ? "is" : "are"} still unlinked (use "Add now" on it, or queue it again, to retry).`;
+        : `Done — added ${added} of ${done}; ${failed} failed and ${failed === 1 ? "is" : "are"} still queued to retry next time.`;
     updateMrAddQueueButton();
   }
 
@@ -862,8 +884,10 @@
         entry.mrTaskId = created.id;
       } catch (err) {
         failed++;
-        mrEditQueueStatusEl.textContent = `Old task ${oldTaskId} removed, but creating its replacement failed (${done} of ${ids.length}): ${err.message}. This area is now unlinked - use "Add now" or "Queue for adding" on it to retry.`;
+        mrAddQueue.add(id); // old task is really gone - queue the new shape for adding instead of leaving it to a manual click
+        mrEditQueueStatusEl.textContent = `Old task ${oldTaskId} removed, but creating its replacement failed (${done} of ${ids.length}): ${err.message}. Queued for adding to retry.`;
         entry.layer.setStyle(styleFor(entry));
+        updateMrAddQueueButton();
         renderList();
         if (done < ids.length) await sleep(MR_QUEUE_PACE_MS);
         continue;
@@ -892,29 +916,57 @@
 
   // --- MapRoulette API ---
 
+  async function mrRequestOnce(path, options) {
+    const res = await fetch(MR_API_BASE + path, {
+      ...options,
+      headers: Object.assign(
+        { apiKey: mrApiKey, "Content-Type": "application/json", From: "Block Triage - tronnalegacy@pm.me" },
+        (options && options.headers) || {}
+      ),
+    });
+    if (!res.ok) {
+      let detail = "";
+      try {
+        detail = await res.text();
+      } catch (err) {
+        // ignore - use status text below
+      }
+      const err = new Error(`MapRoulette API ${res.status}: ${detail || res.statusText}`);
+      // 429 (rate limited) and 5xx (server trouble) are worth retrying; a 4xx
+      // otherwise means the request itself is wrong (bad auth, not found,
+      // conflict, ...) and retrying it will just fail the same way again.
+      err.mrRetryable = res.status === 429 || (res.status >= 500 && res.status <= 599);
+      throw err;
+    }
+    if (res.status === 204 || res.status === 304) return null;
+    const text = await res.text();
+    return text ? JSON.parse(text) : null;
+  }
+
+  const MR_MAX_ATTEMPTS = 3; // the initial attempt plus up to 2 retries
+  const MR_RETRY_BASE_DELAY_MS = 600;
+
+  // Retries a request a couple of times with a short, linearly-increasing
+  // delay before giving up, so a momentary blip (network hiccup, a 502, a
+  // 429) doesn't immediately surface as a failure to every queue that calls
+  // this - they only see an error once retrying here has already been
+  // exhausted, at which point it's their job to decide whether to re-queue.
   async function mrRequest(path, options) {
     if (!mrApiKey) throw new Error("Set your MapRoulette API key first.");
     await acquireMrSlot();
     try {
-      const res = await fetch(MR_API_BASE + path, {
-        ...options,
-        headers: Object.assign(
-          { apiKey: mrApiKey, "Content-Type": "application/json", From: "Block Triage - tronnalegacy@pm.me" },
-          (options && options.headers) || {}
-        ),
-      });
-      if (!res.ok) {
-        let detail = "";
+      for (let attempt = 1; attempt <= MR_MAX_ATTEMPTS; attempt++) {
         try {
-          detail = await res.text();
+          return await mrRequestOnce(path, options);
         } catch (err) {
-          // ignore - use status text below
+          // A thrown error with no .mrRetryable is a network-level failure
+          // (offline, DNS, CORS) rather than a real response - also worth
+          // retrying, so it defaults to retryable.
+          const retryable = err.mrRetryable !== false;
+          if (attempt === MR_MAX_ATTEMPTS || !retryable) throw err;
+          await sleep(MR_RETRY_BASE_DELAY_MS * attempt);
         }
-        throw new Error(`MapRoulette API ${res.status}: ${detail || res.statusText}`);
       }
-      if (res.status === 204 || res.status === 304) return null;
-      const text = await res.text();
-      return text ? JSON.parse(text) : null;
     } finally {
       releaseMrSlot();
     }
@@ -1268,6 +1320,9 @@
     combineQueue = new Map();
     updateCombineQueueButton();
     mrCombineQueueStatusEl.textContent = "";
+    mrOrphanedDeleteQueue = new Set();
+    updateOrphanedDeleteQueueButton();
+    mrOrphanedDeleteQueueStatusEl.textContent = "";
     if (editState) cancelEditBoundary();
 
     parsed.features.forEach((feature, idx) => {
@@ -1958,9 +2013,12 @@
     try {
       await mrDeleteTask(originalSnapshot.mrTaskId);
     } catch (err) {
-      alert(
-        `Split completed locally, but removing MapRoulette task ${originalSnapshot.mrTaskId} failed: ${err.message}. It may still exist on MapRoulette; you may want to remove it manually.`
-      );
+      // mrRequest's own retries are already exhausted by this point - nothing
+      // changed remotely yet, so there's no orphaned task to track, just a
+      // deletion that still needs doing. Queue the raw task id for its own
+      // retry queue rather than alerting and losing track of it.
+      mrOrphanedDeleteQueue.add(originalSnapshot.mrTaskId);
+      updateOrphanedDeleteQueueButton();
       return;
     }
     for (const snap of newSnapshots) {
@@ -1970,10 +2028,13 @@
         const created = await mrCreateTask(liveEntry.feature);
         snap.mrTaskId = created.id;
         liveEntry.mrTaskId = created.id;
+        liveEntry.layer.setStyle(styleFor(liveEntry));
       } catch (err) {
-        alert(
-          `The original MapRoulette task was removed, but creating a new task for one split piece failed: ${err.message}. Use that area's "Add task to challenge" button to retry.`
-        );
+        // The old task is really gone regardless - queue this piece for
+        // adding instead of leaving it to a manual click.
+        mrAddQueue.add(liveEntry.id);
+        liveEntry.layer.setStyle(styleFor(liveEntry));
+        updateMrAddQueueButton();
       }
     }
   }
@@ -2271,9 +2332,11 @@
       try {
         await mrDeleteTask(snap.mrTaskId);
       } catch (err) {
-        alert(
-          `Combine completed locally, but removing MapRoulette task ${snap.mrTaskId} failed: ${err.message}. It may still exist on MapRoulette; you may want to remove it manually.`
-        );
+        // mrRequest's own retries are already exhausted - nothing changed
+        // remotely for this one, just a deletion that still needs doing, so
+        // it's tracked on its own rather than alerted-and-forgotten.
+        mrOrphanedDeleteQueue.add(snap.mrTaskId);
+        updateOrphanedDeleteQueueButton();
       }
     }
     const liveEntry = entries.get(newSnapshot.id);
@@ -2284,9 +2347,11 @@
       liveEntry.mrTaskId = created.id;
       liveEntry.layer.setStyle(styleFor(liveEntry));
     } catch (err) {
-      alert(
-        `One or more original tasks were removed, but creating a new task for the merged area failed: ${err.message}. Use that area's "Add now" button to retry.`
-      );
+      // The constituents are already gone regardless - queue the merged
+      // area for adding instead of leaving it to a manual click.
+      mrAddQueue.add(liveEntry.id);
+      liveEntry.layer.setStyle(styleFor(liveEntry));
+      updateMrAddQueueButton();
     }
   }
 
@@ -2327,6 +2392,53 @@
     }
     mrCombineQueueStatusEl.textContent = `Done — synced ${done} combine${done === 1 ? "" : "s"}.`;
     updateCombineQueueButton();
+  }
+
+  function updateOrphanedDeleteQueueButton() {
+    mrOrphanedDeleteQueueBtn.textContent = `Process orphaned deletes (${mrOrphanedDeleteQueue.size})`;
+    mrOrphanedDeleteQueueBtn.disabled = mrOrphanedDeleteQueue.size === 0;
+    updateProcessAllButton();
+  }
+
+  // Retries deleting every task id that a split/replace/combine sync
+  // couldn't remove even after mrRequest's own retries were exhausted -
+  // these have no local area to attach the retry to anymore (the local side
+  // already moved on), so they sit here as bare task ids until this
+  // succeeds or the user gives up on one (there's no undo for this queue,
+  // since these tasks are already known-orphaned duplicates, not areas).
+  async function processOrphanedDeleteQueue() {
+    const ids = Array.from(mrOrphanedDeleteQueue);
+    if (ids.length === 0) return;
+    const ok = confirm(
+      `This will permanently delete ${ids.length} orphaned MapRoulette task${
+        ids.length === 1 ? "" : "s"
+      } left over from an earlier split, replace, or combine that failed to sync, one at a time. Continue?`
+    );
+    if (!ok) return;
+
+    mrOrphanedDeleteQueueBtn.disabled = true;
+    let done = 0;
+    let failed = 0;
+    for (const taskId of ids) {
+      done++;
+      mrOrphanedDeleteQueue.delete(taskId);
+      mrOrphanedDeleteQueueStatusEl.textContent = `Deleting ${done} of ${ids.length} (task ${taskId})…`;
+      try {
+        await mrDeleteTask(taskId);
+      } catch (err) {
+        failed++;
+        mrOrphanedDeleteQueue.add(taskId);
+      }
+      if (done < ids.length) await sleep(MR_QUEUE_PACE_MS);
+    }
+    const deleted = done - failed;
+    mrOrphanedDeleteQueueStatusEl.textContent =
+      failed === 0
+        ? `Done — deleted ${deleted} orphaned task${deleted === 1 ? "" : "s"}.`
+        : `Done — deleted ${deleted} of ${done}; ${failed} still failed and ${
+            failed === 1 ? "stays" : "stay"
+          } queued to retry next time.`;
+    updateOrphanedDeleteQueueButton();
   }
 
   // --- Replace ---
@@ -2522,9 +2634,11 @@
       try {
         await mrDeleteTask(snap.mrTaskId);
       } catch (err) {
-        alert(
-          `Replace completed locally, but removing MapRoulette task ${snap.mrTaskId} failed: ${err.message}. It may still exist on MapRoulette; you may want to remove it manually.`
-        );
+        // mrRequest's own retries are already exhausted - nothing changed
+        // remotely for this one, just a deletion that still needs doing, so
+        // it's tracked on its own rather than alerted-and-forgotten.
+        mrOrphanedDeleteQueue.add(snap.mrTaskId);
+        updateOrphanedDeleteQueueButton();
       }
     }
     for (const snap of newSnapshots) {
@@ -2536,9 +2650,11 @@
         liveEntry.mrTaskId = created.id;
         liveEntry.layer.setStyle(styleFor(liveEntry));
       } catch (err) {
-        alert(
-          `One or more original tasks were removed, but creating a new task for a replacement area failed: ${err.message}. Use that area's "Add now" button to retry.`
-        );
+        // The original(s) are already gone regardless - queue this
+        // replacement for adding instead of leaving it to a manual click.
+        mrAddQueue.add(liveEntry.id);
+        liveEntry.layer.setStyle(styleFor(liveEntry));
+        updateMrAddQueueButton();
       }
     }
   }
