@@ -7,6 +7,7 @@
 
 const fs = require("fs");
 const path = require("path");
+const { execSync } = require("child_process");
 
 const ROOT = __dirname;
 const DIST = path.join(ROOT, "dist");
@@ -50,4 +51,29 @@ for (const name of INCLUDE) {
   copyRecursive(src, path.join(DIST, name));
 }
 
-console.log(`build.js: wrote dist/ from ${INCLUDE.join(", ")}`);
+// Stamps this build with a short version string and the time it ran, so a
+// deployed page can show which build is live - referenced via a plain
+// <script> tag (not fetch()) since that also works when someone opens the
+// built files straight off disk via file://, where fetching a local JSON
+// file can be blocked. Netlify sets COMMIT_REF to the exact commit being
+// deployed; falling back to `git rev-parse` covers any other static host
+// (or a local `npm run build`) that still has the repo's git history
+// available, and "unknown" covers everything else (e.g. a tarball with no
+// .git directory) rather than failing the build over a version label.
+function resolveVersion() {
+  if (process.env.COMMIT_REF) return process.env.COMMIT_REF.slice(0, 7);
+  try {
+    return execSync("git rev-parse --short HEAD", { cwd: ROOT }).toString().trim();
+  } catch (err) {
+    return "unknown";
+  }
+}
+
+const version = resolveVersion();
+const builtAt = new Date().toISOString();
+fs.writeFileSync(
+  path.join(DIST, "version.js"),
+  `window.__BLOCK_TRIAGE_VERSION__ = ${JSON.stringify({ version, builtAt })};\n`
+);
+
+console.log(`build.js: wrote dist/ from ${INCLUDE.join(", ")} (version ${version}, built ${builtAt})`);

@@ -64,7 +64,7 @@
 </head>
 <body>
   <main>
-    <h1>Block Triage</h1>
+    <h1 id="app-title">Block Triage</h1>
     <p class="sub">Which interface do you want to open?</p>
 
     <a class="choice" href="local.html">
@@ -86,5 +86,21 @@
       </div>
     </a>
   </main>
+
+  <script src="version.js"></script>
+  <script>
+    // window.__BLOCK_TRIAGE_VERSION__ comes from version.js, which only
+    // exists in a built (dist/) deploy - see build.js. Best-effort: a plain
+    // native tooltip on the page title, not meant to be prominent, just
+    // there to check if you ever need to know which build you're looking at.
+    (function applyVersionTooltip() {
+      const info = window.__BLOCK_TRIAGE_VERSION__;
+      const titleEl = document.getElementById("app-title");
+      if (!info || !titleEl) return;
+      const built = new Date(info.builtAt);
+      const builtLabel = isNaN(built.getTime()) ? info.builtAt : built.toLocaleString();
+      titleEl.title = `Block Triage ${info.version} — built ${builtLabel}`;
+    })();
+  </script>
 </body>
 </html>

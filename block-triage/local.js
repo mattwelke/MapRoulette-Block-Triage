@@ -1,6 +1,21 @@
 (function () {
   "use strict";
 
+  // window.__BLOCK_TRIAGE_VERSION__ comes from version.js, which only exists
+  // in a built (dist/) deploy - see build.js. Opening this file straight off
+  // disk (dev, or the Playwright tests) has no such script, so this is
+  // entirely best-effort: a plain native tooltip on the page title, not
+  // meant to be prominent, just there to check if you ever need to know
+  // which build you're looking at.
+  (function applyVersionTooltip() {
+    const info = window.__BLOCK_TRIAGE_VERSION__;
+    const titleEl = document.getElementById("app-title");
+    if (!info || !titleEl) return;
+    const built = new Date(info.builtAt);
+    const builtLabel = isNaN(built.getTime()) ? info.builtAt : built.toLocaleString();
+    titleEl.title = `Block Triage ${info.version} — built ${builtLabel}`;
+  })();
+
   const COLORS = {
     unreviewed: "#3388ff",
     flagged: "#ff9800",

@@ -15,7 +15,7 @@
   <div id="app">
     <header id="topbar">
       <a id="back-link" href="index.html" title="Back to interface chooser">←</a>
-      <h1>Block Triage — Local File Triage</h1>
+      <h1 id="app-title">Block Triage — Local File Triage</h1>
       <div id="file-controls">
         <label class="btn" for="file-input">Open GeoJSON&hellip;</label>
         <input type="file" id="file-input" accept=".geojson,.json,application/geo+json,application/json">
@@ -112,6 +112,7 @@
     </div>
   </div>
 
+  <script src="version.js"></script>
   <script src="vendor/leaflet.js"></script>
   <script src="vendor/turf.min.js"></script>
   <script src="local.js"></script>
