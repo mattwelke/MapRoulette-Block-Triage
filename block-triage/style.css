@@ -257,6 +257,12 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
   font-size: 0.8rem;
 }
 
+/* Two lines (timestamp, then result) rather than one that grows/shrinks
+   with the result's length and jostles the rest of the panel below it. */
+#mr-lock-poll-status {
+  white-space: pre-line;
+}
+
 #mr-status.mr-success,
 #mr-load-status.mr-success {
   color: #2e7d32;
