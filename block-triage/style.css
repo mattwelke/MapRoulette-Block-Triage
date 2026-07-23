@@ -368,6 +368,41 @@ kbd {
   font-size: 0.8rem;
 }
 
+/* live.html only: the feature list is virtualized (see renderVisibleRows()
+   in live.js) - only rows scrolled into view actually exist in the DOM, so
+   each row needs a fixed height and absolute position instead of taking
+   part in normal flex flow. local.html's list isn't virtualized and keeps
+   the plain flex layout above.
+   #feature-list gets its own fixed height (rather than flex-growing to fill
+   whatever's left of the sidebar) because the MapRoulette panel above it is
+   often taller than the whole sidebar on its own - flex-grow would have
+   nothing left to give it and it'd collapse to 0, stranding the virtualized
+   rows off-screen. #sidebar's own scrollbar still gets you down to this
+   section same as before; this section then scrolls its (possibly huge)
+   row count internally. */
+#live-page #feature-list {
+  height: 50vh;
+  overflow-y: auto;
+  position: relative;
+}
+
+#live-page #feature-list-sizer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 1px;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+#live-page .feature-row {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 34px;
+  overflow: hidden;
+}
+
 .feature-row:hover { background: #f0f4ff; }
 
 .feature-row.selected {

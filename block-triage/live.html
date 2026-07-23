@@ -11,7 +11,7 @@
 <link rel="stylesheet" href="vendor/leaflet.css">
 <link rel="stylesheet" href="style.css">
 </head>
-<body>
+<body id="live-page">
   <div id="app">
     <div id="mr-live-banner">
       &#128308; LIVE: editing MapRoulette challenge <span id="mr-live-banner-challenge">(no challenge ID set)</span>
@@ -190,7 +190,9 @@
 
         <div id="feature-list-wrap">
           <h2>Features <span class="muted">(sorted by area, smallest first)</span></h2>
-          <div id="feature-list"></div>
+          <div id="feature-list">
+            <div id="feature-list-sizer"></div>
+          </div>
         </div>
       </aside>
 

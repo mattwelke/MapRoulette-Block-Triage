@@ -409,6 +409,7 @@
 
   const statsEl = document.getElementById("stats");
   const featureListEl = document.getElementById("feature-list");
+  const featureListSizerEl = document.getElementById("feature-list-sizer");
   const targetAreaLimitInput = document.getElementById("target-area-limit");
   const appEl = document.getElementById("app");
   const undoBtn = document.getElementById("undo-btn");
@@ -3161,11 +3162,45 @@
       .sort((a, b) => entries.get(a).area - entries.get(b).area);
   }
 
+  // The list is virtualized: with thousands of tasks loaded, building a DOM
+  // row for every single one on every state change (selecting, queuing,
+  // combining, ...) was the single biggest cost in the app, since the
+  // browser has to parse a fresh chunk of HTML per row every time. Only the
+  // rows actually scrolled into view (plus a small buffer) are ever built;
+  // #feature-list-sizer is an invisible spacer that gives the scrollable
+  // area the correct total height so the scrollbar still behaves normally.
+  const ROW_HEIGHT = 34; // must match #live-page .feature-row's fixed height in style.css
+  const ROW_BUFFER = 8; // extra rows rendered above/below the visible window
+  let visibleListIds = [];
+  let renderVisibleRowsScheduled = false;
+
   function renderList() {
-    const ids = filteredSortedIds();
-    featureListEl.innerHTML = "";
+    visibleListIds = filteredSortedIds();
+    featureListSizerEl.style.height = visibleListIds.length * ROW_HEIGHT + "px";
+    renderVisibleRows();
+  }
+
+  function scheduleRenderVisibleRows() {
+    if (renderVisibleRowsScheduled) return;
+    renderVisibleRowsScheduled = true;
+    requestAnimationFrame(() => {
+      renderVisibleRowsScheduled = false;
+      renderVisibleRows();
+    });
+  }
+
+  function renderVisibleRows() {
+    const total = visibleListIds.length;
+    const scrollTop = featureListEl.scrollTop;
+    const viewportHeight = featureListEl.clientHeight || 400;
+    const startIdx = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - ROW_BUFFER);
+    const endIdx = Math.min(total, Math.ceil((scrollTop + viewportHeight) / ROW_HEIGHT) + ROW_BUFFER);
+
+    featureListEl.querySelectorAll(".feature-row").forEach((el) => el.remove());
+
     const frag = document.createDocumentFragment();
-    ids.forEach((id) => {
+    for (let i = startIdx; i < endIdx; i++) {
+      const id = visibleListIds[i];
       const e = entries.get(id);
       const isCombineSelected = combineState && combineState.selectedIds.has(id);
       const isReplaceSelected = replaceState && replaceState.phase === "selecting" && replaceState.selectedIds.has(id);
@@ -3188,6 +3223,7 @@
         (isReplaceQueued ? " mr-replace-queued" : "") +
         (isMrCombineQueued ? " mr-combine-queued" : "");
       row.dataset.id = id;
+      row.style.top = i * ROW_HEIGHT + "px";
       row.innerHTML = `
         <span class="status-dot ${category(e)}"></span>
         <span class="meta">
@@ -3211,9 +3247,11 @@
         openPopup(e);
       });
       frag.appendChild(row);
-    });
+    }
     featureListEl.appendChild(frag);
   }
+
+  featureListEl.addEventListener("scroll", scheduleRenderVisibleRows);
 
   function panTo(entry) {
     const b = entry.layer.getBounds();
