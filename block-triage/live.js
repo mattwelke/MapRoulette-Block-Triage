@@ -2360,8 +2360,9 @@
     redoStack = [];
     updateUndoRedoButtons();
     updateStats();
-    renderList();
 
+    // selectFeature() below already calls renderList() itself - no need to
+    // render here too, it would just rebuild the whole list a second time.
     selectFeature(newSnapshot.id);
     panTo(entries.get(newSnapshot.id));
   }
@@ -2377,7 +2378,7 @@
     });
     updateMrAddQueueButton();
     updateStats();
-    renderList();
+    // selectFeature() below already calls renderList() itself.
     selectFeature(action.originals[0].id);
     panTo(entries.get(action.originals[0].id));
   }
@@ -2396,7 +2397,7 @@
     updateCombineQueueButton();
     updateMrAddQueueButton();
     updateStats();
-    renderList();
+    // selectFeature() below already calls renderList() itself.
     selectFeature(action.newSnapshot.id);
     panTo(entries.get(action.newSnapshot.id));
   }
