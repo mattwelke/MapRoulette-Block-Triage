@@ -482,17 +482,19 @@ other.
 
 ## Low density exemption
 
-Some areas are legitimately small because the underlying density is low,
-not because anything's actually wrong with the boundary - a genuinely
-sparse block shouldn't keep getting flagged as too small. An area's popup
+Some areas are legitimately small - or, just as often in a genuinely
+sparse area, legitimately large - because the underlying density is low,
+not because anything's actually wrong with the boundary. An area's popup
 (in both `local.html` and `live.html`) has a **Low density (exempt from
 ...)** checkbox for exactly this: checking it exempts that area from the
-small-area part of whichever flagging rule applies -
+area-size part of whichever flagging rule applies -
 `local.html`'s small-area threshold specifically (its separate
-compactness/skinny-shape check still applies on its own), or
-`live.html`'s undersized/needs-combine verdict (oversized/needs-split is
-unaffected, since that isn't a density concern). An exempted area is
-colored the same as any other area with no action suggested.
+compactness/skinny-shape check still applies on its own, since a
+low-density area can still be a genuinely skinny/problematic shape), or
+`live.html`'s oversized/undersized verdict entirely (both directions -
+a low-density block can legitimately be either). An exempted area is
+colored the same as any other area with no action suggested, in both the
+map and the sidebar's stats counts.
 
 It's stored as a `_blockTriageLowDensity: true` feature property, the same
 underscore-prefixed convention `local.html`'s `_blockTriageStatus` uses -

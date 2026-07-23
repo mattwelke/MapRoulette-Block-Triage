@@ -1431,12 +1431,13 @@
   function category(entry) {
     if (entry.mrLocked) return "locked";
     if (entry.mrActiveLockedBy != null) return "active-lock";
+    // A "low density" mark exempts an area from the whole area-size rule -
+    // low-density blocks can legitimately land on either side of it (a
+    // sparse suburban block covering a lot of ground, or a small one with
+    // little in it) without either end meaning something's actually wrong.
+    if (entry.lowDensity) return "normal";
     if (entry.area >= targetAreaLimit) return "oversized";
-    // A "low density" mark exempts an area from the undersized/needs-combine
-    // verdict specifically - a genuinely low-density area is expected to be
-    // physically small without that meaning anything's wrong with it.
-    // Oversized (needs split) isn't a density concern, so it isn't exempted.
-    if (entry.area <= targetAreaLimit * 0.5 && !entry.lowDensity) return "undersized";
+    if (entry.area <= targetAreaLimit * 0.5) return "undersized";
     return "normal";
   }
 
@@ -3161,7 +3162,11 @@
   function updateStats() {
     let normal = 0, oversized = 0, undersized = 0;
     entries.forEach((e) => {
-      if (e.area >= targetAreaLimit) oversized++;
+      // Mirrors category()'s own low-density exemption - without this check
+      // here too, a low-density area would render as normal (blue) on the
+      // map but still get counted as oversized/undersized in these totals.
+      if (e.lowDensity) normal++;
+      else if (e.area >= targetAreaLimit) oversized++;
       else if (e.area <= targetAreaLimit * 0.5) undersized++;
       else normal++;
     });
