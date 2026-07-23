@@ -97,7 +97,7 @@ runTest("mr-combine-sync: combining two task-linked areas queues the sync instea
   await page.click("#mr-combine-queue-btn");
   await page.waitForTimeout(1500);
 
-  assertEqual(dialogs.length, 1, `expected exactly one confirm for processing the combine queue, got: ${JSON.stringify(dialogs)}`);
+  assertEqual(dialogs.length, 0, `processing the combine queue shouldn't show a confirm, got: ${JSON.stringify(dialogs)}`);
   assertEqual(mrState.deletedTaskIds.length, 2, "expected exactly 2 delete requests, one per constituent");
   assertEqual(mrState.createdTasks.length, 1, "expected exactly 1 create request for the merged area");
   assertEqual(

@@ -721,10 +721,10 @@
     mrProcessAllBtn.disabled = total === 0;
   }
 
-  // Runs every queue's own processing function in turn - each already
-  // handles its own confirm dialog (or lack thereof) and processes its own
-  // items concurrently internally (see runConcurrently), so this is mostly a
-  // convenience that saves clicking each queue's button separately. Queue
+  // Runs every queue's own processing function in turn - each starts right
+  // away with no confirm dialog, processing its own items concurrently
+  // internally (see runConcurrently), so this is mostly a convenience that
+  // saves clicking each queue's button separately. Queue
   // *types* still run one after another rather than overlapping each other:
   // an entry could in principle be referenced by more than one queue at once
   // (e.g. queued for boundary-edit and also picked up by a bulk quick-delete
@@ -773,12 +773,6 @@
   async function processMrDeleteQueue() {
     const ids = Array.from(mrDeleteQueue);
     if (ids.length === 0) return;
-    const ok = confirm(
-      `This will permanently delete ${ids.length} task${
-        ids.length === 1 ? "" : "s"
-      } from MapRoulette, up to ${mrMaxConcurrent} at a time. Continue?`
-    );
-    if (!ok) return;
 
     mrQueueBtn.disabled = true;
     // One recheck for the whole batch rather than one per item - the queue
@@ -844,9 +838,7 @@
   }
 
   // Creates every still-queued, still-unlinked area as a new MapRoulette
-  // task, several at a time (see runConcurrently). Creating tasks isn't
-  // destructive (unlike deleting), so this skips the bulk confirm the
-  // delete queue asks for.
+  // task, several at a time (see runConcurrently).
   async function processMrAddQueue() {
     const ids = Array.from(mrAddQueue);
     if (ids.length === 0) return;
@@ -896,12 +888,6 @@
   async function processMrEditQueue() {
     const ids = Array.from(mrEditQueue);
     if (ids.length === 0) return;
-    const ok = confirm(
-      `This will delete and recreate ${ids.length} task${
-        ids.length === 1 ? "" : "s"
-      } on MapRoulette with their edited boundaries, up to ${mrMaxConcurrent} at a time. Continue?`
-    );
-    if (!ok) return;
 
     mrEditQueueBtn.disabled = true;
     // One recheck for the whole batch rather than one per item - same
@@ -1685,9 +1671,8 @@
     updateMrButton();
     mrBtn.addEventListener("click", () => {
       // Queueing/dequeueing (for either queue) is fully reversible (nothing's
-      // created/deleted yet), so no confirmation here - that happens once,
-      // for the whole batch, when actually processing a queue (and not at
-      // all for adding, since creating a task isn't destructive).
+      // created/deleted yet), so no confirmation here - processing the queue
+      // itself also starts immediately, with no confirmation either.
       if (entry.mrTaskId) {
         if (mrDeleteQueue.has(entry.id)) {
           mrDeleteQueue.delete(entry.id);
@@ -2077,12 +2062,6 @@
   async function processSplitQueue() {
     const groupIds = Array.from(splitQueue.keys());
     if (groupIds.length === 0) return;
-    const ok = confirm(
-      `This will sync ${groupIds.length} split${
-        groupIds.length === 1 ? "" : "s"
-      } to MapRoulette now, deleting the original task (where linked) and creating new ones for the resulting piece(s), up to ${mrMaxConcurrent} splits at a time. Continue?`
-    );
-    if (!ok) return;
 
     mrSplitQueueBtn.disabled = true;
     let done = 0;
@@ -2475,12 +2454,6 @@
   async function processCombineQueue() {
     const groupIds = Array.from(combineQueue.keys());
     if (groupIds.length === 0) return;
-    const ok = confirm(
-      `This will sync ${groupIds.length} combine${
-        groupIds.length === 1 ? "" : "s"
-      } to MapRoulette now, deleting the original tasks (where linked) and creating a new one for the merged area, up to ${mrMaxConcurrent} combines at a time. Continue?`
-    );
-    if (!ok) return;
 
     mrCombineQueueBtn.disabled = true;
     let done = 0;
@@ -2519,12 +2492,6 @@
   async function processOrphanedDeleteQueue() {
     const ids = Array.from(mrOrphanedDeleteQueue);
     if (ids.length === 0) return;
-    const ok = confirm(
-      `This will permanently delete ${ids.length} orphaned MapRoulette task${
-        ids.length === 1 ? "" : "s"
-      } left over from an earlier split, replace, or combine that failed to sync, up to ${mrMaxConcurrent} at a time. Continue?`
-    );
-    if (!ok) return;
 
     mrOrphanedDeleteQueueBtn.disabled = true;
     let done = 0;
@@ -2778,12 +2745,6 @@
   async function processReplaceQueue() {
     const groupIds = Array.from(replaceQueue.keys());
     if (groupIds.length === 0) return;
-    const ok = confirm(
-      `This will replace ${groupIds.length} group${
-        groupIds.length === 1 ? "" : "s"
-      } of areas now, deleting any linked MapRoulette tasks and creating new ones for the replacements, up to ${mrMaxConcurrent} groups at a time. Continue?`
-    );
-    if (!ok) return;
 
     mrReplaceQueueBtn.disabled = true;
     let done = 0;

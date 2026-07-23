@@ -124,7 +124,7 @@ check the first time you upload a file carrying it, just to be sure.
 `live.html` loads a challenge's tasks directly from the MapRoulette API
 and edits them there, live — there's no file to load or export; every
 action here (split, combine, delete) is a real, remote change to your
-challenge the moment you confirm it.
+challenge once its queue is processed.
 
 **Setup:**
 - **API key** — from the bottom of https://maproulette.org/user/profile.
@@ -182,21 +182,20 @@ one popup at a time, waiting on each request, isn't a great way to work.
 **Process all pending N** (near the top of the MapRoulette panel) runs
 every queue below - add, delete, boundary-edit, split, replace, combine -
 one after another in a single click, so you don't have to hunt down each
-queue's own button; each queue still asks for its own confirmation exactly
-where it normally would (add doesn't need one, the rest do).
+queue's own button; processing starts immediately, with no confirmation
+prompts along the way.
 
 - **Adding**: every new, unlinked area (drawn, split, or combined) is
   automatically queued to be added — it shows a green dashed outline on the
   map and in the list. **Process add queue N** (in the MapRoulette panel)
-  creates them all, several at a time (see "Max concurrent requests" above);
-  no confirmation is needed since creating a task isn't destructive. If you
-  don't want to wait for the batch, that area's popup's **Add now** button
-  creates it right away instead (and drops it out of the queue).
+  creates them all, several at a time (see "Max concurrent requests" above).
+  If you don't want to wait for the batch, that area's popup's **Add now**
+  button creates it right away instead (and drops it out of the queue).
 - **Removing**: clicking **Remove task from challenge** doesn't delete
   anything right away — it queues the removal (red dashed outline) and
   nothing is deleted until you process that queue. **Process delete queue
-  N** confirms once for the whole batch, then deletes them several at a
-  time so as not to hammer the API without limit.
+  N** starts right away and deletes them several at a time so as not to
+  hammer the API without limit.
 
 Either way, whatever succeeds disappears from (or appears in) the map, the
 list, and the stats immediately. Every MapRoulette request is itself

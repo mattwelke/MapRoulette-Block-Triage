@@ -78,8 +78,8 @@ runTest("maproulette-split: split applies locally right away even when the MapRo
   );
   assertEqual(
     dialogs.length,
-    1,
-    `expected only the one bulk-process confirm - a delete failure shouldn't alert separately anymore, it's tracked in the orphaned-deletes queue instead; got dialogs: ${JSON.stringify(
+    0,
+    `processing a queue shouldn't show a confirm anymore, and a delete failure shouldn't alert separately either - it's tracked in the orphaned-deletes queue instead; got dialogs: ${JSON.stringify(
       dialogs
     )}`
   );

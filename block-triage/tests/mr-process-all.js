@@ -90,9 +90,8 @@ runTest("mr-process-all: one button processes every queue type at once", async (
   await page.click("#mr-process-all-btn");
   await page.waitForTimeout(2000);
 
-  // Only the delete queue should have needed a confirm - adding isn't destructive.
-  assertEqual(dialogs.length, 1, `expected exactly one confirm (for the delete queue), got: ${JSON.stringify(dialogs)}`);
-  assert(dialogs[0].includes("permanently delete"), `expected a deletion confirm, got: ${dialogs[0]}`);
+  // Processing all pending queues should start immediately, no confirm dialogs at all.
+  assertEqual(dialogs.length, 0, `expected no confirm dialogs, got: ${JSON.stringify(dialogs)}`);
 
   assertEqual(
     await page.$eval("#mr-add-queue-btn", (el) => el.textContent),

@@ -125,7 +125,7 @@ runTest("mr-replace-queue: select areas to replace, draw replacements, queue and
   await page.click("#mr-replace-queue-btn");
   await page.waitForTimeout(1500);
 
-  assertEqual(dialogs.length, 1, `expected exactly one confirm for processing the replace queue, got: ${JSON.stringify(dialogs)}`);
+  assertEqual(dialogs.length, 0, `processing the replace queue shouldn't show a confirm, got: ${JSON.stringify(dialogs)}`);
   assertEqual(mrState.deletedTaskIds.length, 1, "expected exactly 1 delete request (for row #9's old task)");
   assertEqual(mrState.createdTasks.length, 1, "expected exactly 1 create request (for the drawn replacement)");
   assertEqual(

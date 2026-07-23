@@ -12,7 +12,7 @@ const {
 
 const CHALLENGE_ID = 90001;
 
-runTest("mr-queue-process: bulk confirm, paced sequential deletes, partial failure handling", async () => {
+runTest("mr-queue-process: immediate start, paced sequential deletes, partial failure handling", async () => {
   const { browser, page } = await launch();
   const dialogs = [];
   page.on("dialog", async (dialog) => {
@@ -73,8 +73,7 @@ runTest("mr-queue-process: bulk confirm, paced sequential deletes, partial failu
   const startTime = Date.now();
   await page.click("#mr-queue-btn");
   await page.waitForTimeout(300);
-  assertEqual(dialogs.length, 1, "processing should ask for exactly one bulk confirm");
-  assert(dialogs[0].includes("3 tasks"), `expected the confirm to mention 3 tasks, got: ${dialogs[0]}`);
+  assertEqual(dialogs.length, 0, "processing should start immediately with no confirm dialog");
 
   // 3 items paced ~400ms apart, plus the failing item's own retries with
   // backoff (mrRequest retries twice more before giving up) - generous margin.
