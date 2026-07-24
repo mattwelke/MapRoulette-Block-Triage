@@ -176,7 +176,14 @@ async function launch(opts) {
   }
   const browser = await chromium.launch(launchOptions);
   const viewport = (opts && opts.viewport) || { width: 1400, height: 900 };
-  const page = await browser.newPage({ viewport });
+  // hasTouch also flips the (pointer: coarse) and (hover: none) media
+  // features the app uses to detect a tablet-style viewport (see
+  // isTabletViewport() in live.js/local.js) - a real desktop/laptop context
+  // reports (pointer: fine) and (hover: hover) regardless of window width,
+  // so tests need this to actually emulate a touch device rather than just
+  // resizing the window.
+  const hasTouch = !!(opts && opts.hasTouch);
+  const page = await browser.newPage({ viewport, hasTouch });
   watchForPageErrors(page);
   return { browser, page };
 }

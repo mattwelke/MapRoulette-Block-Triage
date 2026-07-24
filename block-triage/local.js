@@ -228,7 +228,7 @@
   // vertically centered, thumb-reachable in landscape) instead of a
   // Leaflet popup anchored to the tapped spot.
   function isTabletViewport() {
-    return window.matchMedia("(min-width: 600px) and (max-width: 1366px)").matches;
+    return window.matchMedia("(pointer: coarse) and (hover: none) and (min-width: 600px)").matches;
   }
 
   function showTabletPanel(contentEl) {

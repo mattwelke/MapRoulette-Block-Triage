@@ -405,8 +405,11 @@ what was being attempted:
 
 ## Tablets
 
-Both pages adapt at tablet widths (roughly 600–1366px, covering a portrait
-iPad mini through a landscape iPad Pro 12.9"):
+Both pages adapt on touch devices at least phone-plus-sized (detected via
+`(pointer: coarse) and (hover: none) and (min-width: 600px)`, not a width
+range with an upper cap - a fixed cap previously excluded large 13"+
+tablets like the Samsung Galaxy Tab S10 FE+, whose landscape CSS width
+exceeds smaller tablets like the 12.9" iPad Pro):
 
 - **Bigger text.** Every piece of text in the app is sized in `rem`, so a
   single bump to the root font size at that width scales everything at
