@@ -1,3 +1,5 @@
 node_modules/
 tests/tmp/
 dist/
+scripts/venv/
+scripts/__pycache__/
