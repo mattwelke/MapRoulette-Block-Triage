@@ -554,7 +554,6 @@
       const id = hashString(JSON.stringify(feature.geometry));
       const { area, compactness } = computeMetrics(feature);
       const embeddedStatus = feature.properties && feature.properties[STATUS_PROPERTY] === "kept" ? "kept" : "unreviewed";
-      const embeddedLowDensity = !!(feature.properties && feature.properties[LOW_DENSITY_PROPERTY] === true);
       const mark = normalizeMark(marks[id]);
 
       entries.set(id, {
@@ -565,32 +564,26 @@
         area,
         compactness,
         status: marks[id] ? mark.status : embeddedStatus,
-        lowDensity: mark.lowDensity || embeddedLowDensity,
       });
       orderedIds.push(id);
     });
   }
 
-  // marks[id] used to just be a plain status string; normalizing here keeps
-  // reading old localStorage data (from before the low-density mark existed)
-  // working without a migration step.
+  // marks[id] used to just be a plain status string; some old localStorage
+  // data (from before this app dropped its low-density mark) may still be
+  // the object shape instead - normalizing here keeps reading it working
+  // without a migration step (the old lowDensity key, if present, is simply
+  // ignored).
   function normalizeMark(raw) {
-    if (typeof raw === "string") return { status: raw, lowDensity: false };
-    if (raw && typeof raw === "object") return { status: raw.status || "unreviewed", lowDensity: !!raw.lowDensity };
-    return { status: "unreviewed", lowDensity: false };
+    if (typeof raw === "string") return { status: raw };
+    if (raw && typeof raw === "object") return { status: raw.status || "unreviewed" };
+    return { status: "unreviewed" };
   }
 
   // Written into each kept feature's properties on export so a re-imported
   // (round-tripped) file can recognize prior decisions without relying on
   // localStorage.
   const STATUS_PROPERTY = "_blockTriageStatus";
-
-  // Marks an area as exempt from the small-area part of the flagging rule
-  // (see recomputeFlagsAndRender/restoreEntryFromSnapshot) - some areas are
-  // legitimately small because the underlying density is low, not because
-  // anything's wrong with the boundary. Written into the exported file the
-  // same way STATUS_PROPERTY is, so it round-trips too.
-  const LOW_DENSITY_PROPERTY = "_blockTriageLowDensity";
 
   function computeMetrics(feature) {
     let area = 0;
@@ -621,11 +614,8 @@
   function saveMarks() {
     const marks = {};
     entries.forEach((e, id) => {
-      if (e.status === "unreviewed" && !e.lowDensity) return;
-      const mark = {};
-      if (e.status !== "unreviewed") mark.status = e.status;
-      if (e.lowDensity) mark.lowDensity = true;
-      marks[id] = mark;
+      if (e.status === "unreviewed") return;
+      marks[id] = { status: e.status };
     });
     localStorage.setItem(marksStorageKey(), JSON.stringify(marks));
   }
@@ -722,10 +712,6 @@
         <button data-remove>Remove</button>
       </div>
       <div class="popup-actions"><button data-split>Split&hellip;</button></div>
-      <label class="toggle-label" title="Exempts this area from the small-area part of the flagging rule - it's expected to be small because the underlying density is genuinely low, not because anything's wrong. A skinny/compactness flag can still apply independently.">
-        <input type="checkbox" data-low-density ${entry.lowDensity ? "checked" : ""}>
-        Low density (exempt from small-area flag)
-      </label>
     `;
     div.querySelectorAll("button[data-action]").forEach((btn) => {
       btn.addEventListener("click", () => {
@@ -740,15 +726,6 @@
     div.querySelector("[data-split]").addEventListener("click", () => {
       closeAnyPopup();
       startDrawing("split", entry.id);
-    });
-    div.querySelector("[data-low-density]").addEventListener("change", (e) => {
-      toggleLowDensity(entry.id);
-      // The global keydown handler ignores every shortcut (including
-      // undo/redo) while an <input> has focus, to avoid interfering with
-      // typing in the threshold fields - a checkbox isn't typed into, so
-      // blur it right after toggling instead of leaving keyboard shortcuts
-      // silently dead until something else steals focus.
-      e.target.blur();
     });
 
     presentPopup(entry, div);
@@ -769,42 +746,6 @@
       redoStack = [];
       updateUndoRedoButtons();
     }
-  }
-
-  // Flips the low-density exemption (see recomputeFlagsAndRender) on an
-  // existing entry - recomputes its flagged state immediately, same as
-  // changing either threshold does.
-  function toggleLowDensity(id) {
-    const entry = entries.get(id);
-    if (!entry) return;
-    const before = entry.lowDensity;
-    applyLowDensity(entry, !before);
-    undoStack.push({ type: "low-density", id, before, after: entry.lowDensity });
-    redoStack = [];
-    updateUndoRedoButtons();
-  }
-
-  function applyLowDensity(entry, lowDensity) {
-    entry.lowDensity = lowDensity;
-    entry.flagged = (entry.area < thresholds.area && !entry.lowDensity) || entry.compactness < thresholds.compactness;
-    entry.layer.setStyle(styleFor(entry));
-    saveMarks();
-    updateStats();
-    renderList();
-  }
-
-  function undoLowDensity(action) {
-    const entry = entries.get(action.id);
-    if (!entry) return;
-    applyLowDensity(entry, action.before);
-    focusOnAction(action.id);
-  }
-
-  function redoLowDensity(action) {
-    const entry = entries.get(action.id);
-    if (!entry) return;
-    applyLowDensity(entry, action.after);
-    focusOnAction(action.id);
   }
 
   // Removing used to just be a status ("excluded") filtered out at export
@@ -849,7 +790,6 @@
     else if (action.type === "add") undoAdd(action);
     else if (action.type === "combine") undoCombine(action);
     else if (action.type === "remove") undoRemove(action);
-    else if (action.type === "low-density") undoLowDensity(action);
     else {
       setStatus(action.id, action.prevStatus, { skipHistory: true });
       focusOnAction(action.id);
@@ -865,7 +805,6 @@
     else if (action.type === "add") redoAdd(action);
     else if (action.type === "combine") redoCombine(action);
     else if (action.type === "remove") redoRemove(action);
-    else if (action.type === "low-density") redoLowDensity(action);
     else {
       setStatus(action.id, action.newStatus, { skipHistory: true });
       focusOnAction(action.id);
@@ -906,13 +845,12 @@
       area: entry.area,
       compactness: entry.compactness,
       status: entry.status,
-      lowDensity: entry.lowDensity,
     };
   }
 
   function restoreEntryFromSnapshot(snapshot) {
     const entry = Object.assign({}, snapshot, { layer: null });
-    entry.flagged = (entry.area < thresholds.area && !entry.lowDensity) || entry.compactness < thresholds.compactness;
+    entry.flagged = entry.area < thresholds.area || entry.compactness < thresholds.compactness;
     entries.set(entry.id, entry);
     orderedIds.push(entry.id);
     attachLayer(entry);
@@ -958,9 +896,6 @@
         area,
         compactness,
         status: "unreviewed",
-        // Each piece is still part of the same physical area, so it inherits
-        // the low-density mark rather than starting unmarked.
-        lowDensity: originalSnapshot.lowDensity,
       };
     });
     newSnapshots.forEach((snap) => restoreEntryFromSnapshot(snap));
@@ -1019,7 +954,6 @@
       area,
       compactness,
       status: "unreviewed",
-      lowDensity: false,
     };
     restoreEntryFromSnapshot(snapshot);
 
@@ -1148,9 +1082,6 @@
       area,
       compactness,
       status: "unreviewed",
-      // If any constituent was marked low-density, the merged area still is -
-      // merging two areas doesn't make either of them less sparse.
-      lowDensity: originalSnapshots.some((s) => s.lowDensity),
     };
     restoreEntryFromSnapshot(newSnapshot);
 
@@ -1288,7 +1219,7 @@
 
   function recomputeFlagsAndRender() {
     entries.forEach((entry) => {
-      entry.flagged = (entry.area < thresholds.area && !entry.lowDensity) || entry.compactness < thresholds.compactness;
+      entry.flagged = entry.area < thresholds.area || entry.compactness < thresholds.compactness;
       if (entry.layer) entry.layer.setStyle(styleFor(entry));
     });
     updateStats();
@@ -1401,11 +1332,6 @@
         properties[STATUS_PROPERTY] = "kept";
       } else {
         delete properties[STATUS_PROPERTY];
-      }
-      if (e.lowDensity) {
-        properties[LOW_DENSITY_PROPERTY] = true;
-      } else {
-        delete properties[LOW_DENSITY_PROPERTY];
       }
       features.push(Object.assign({}, e.feature, { properties }));
     });

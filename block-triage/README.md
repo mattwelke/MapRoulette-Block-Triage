@@ -502,39 +502,21 @@ whose bounding boxes overlap at all, which keeps it fast even with
 thousands of areas loaded, since most of them aren't anywhere near each
 other.
 
-## Low density exemption
+## Removed: low density exemption
 
-Some areas are legitimately small - or, just as often in a genuinely
-sparse area, legitimately large - because the underlying density is low,
-not because anything's actually wrong with the boundary. An area's popup
-(in both `local.html` and `live.html`) has a **Low density (exempt from
-...)** checkbox for exactly this: checking it exempts that area from the
-area-size part of whichever flagging rule applies -
-`local.html`'s small-area threshold specifically (its separate
-compactness/skinny-shape check still applies on its own, since a
-low-density area can still be a genuinely skinny/problematic shape), or
-`live.html`'s oversized/undersized verdict entirely (both directions -
-a low-density block can legitimately be either). An exempted area is
-colored the same as any other area with no action suggested, in both the
-map and the sidebar's stats counts.
+`local.html` and `live.html` used to have a **Low density (exempt from
+...)** checkbox on each area's popup, letting you mark an area as exempt
+from the small-area/undersized part of whichever flagging rule applied -
+for areas that are legitimately small (or large) because the underlying
+density is low, not because anything's wrong with the boundary. It's been
+removed from the UI now that `live.html`'s address-count coloring mode
+gives a more direct way to gauge density than area alone.
 
-It's stored as a `_blockTriageLowDensity: true` feature property, the same
-underscore-prefixed convention `local.html`'s `_blockTriageStatus` uses -
-in `local.html` it round-trips through export/import (and `localStorage`,
-same as kept/flagged decisions); in `live.html` it's included when a task
-is created and read back out of the task's own properties the next time a
-challenge is loaded, so the mark survives across sessions either way.
-Combining areas carries the mark forward if any constituent had it;
-splitting an area carries it to every resulting piece, since they're all
-still part of the same physical, low-density area. In `live.html`,
-toggling the mark on an already-linked task queues a re-sync (reusing the
-same delete-then-recreate mechanism the boundary-edit queue uses) since
-there's no in-place property update used anywhere in this app.
-
-`scripts/clear_low_density.py` is a standalone (non-front-end) cleanup
-script for anyone who's decided they no longer want this exemption and has
-existing live challenges carrying the mark - see its own docstring for
-usage.
+Any live MapRoulette tasks still carrying the old
+`_blockTriageLowDensity: true` property from before the removal aren't
+affected by anything in the app anymore, but `scripts/clear_low_density.py`
+is kept around as a standalone (non-front-end) cleanup script for clearing
+that leftover property - see its own docstring for usage.
 
 ## Why compactness, not just area
 
