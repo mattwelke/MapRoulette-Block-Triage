@@ -142,12 +142,35 @@
         </div>
 
         <div id="thresholds">
-          <h2>Target area size</h2>
-          <label>
-            Target area limit
-            <input type="number" id="target-area-limit" value="5000" min="1" step="100"> m&sup2;
+          <h2>Coloring mode</h2>
+          <label class="toggle-label">
+            <input type="radio" name="coloring-mode" value="area" checked>
+            Area (m&sup2;)
           </label>
-          <div class="muted">Areas at the limit or more are marked oversized (needs split); areas at 0.5&times; the limit or less are marked undersized (needs combine).</div>
+          <label class="toggle-label" title="Colors areas by how many Town of Oakville address points fall inside them, instead of by area.">
+            <input type="radio" name="coloring-mode" value="addressCount">
+            Address count
+          </label>
+
+          <div id="area-thresholds">
+            <label>
+              Target area limit
+              <input type="number" id="target-area-limit" value="5000" min="1" step="100"> m&sup2;
+            </label>
+            <div class="muted">Areas at the limit or more are marked oversized (needs split); areas at 0.5&times; the limit or less are marked undersized (needs combine).</div>
+          </div>
+
+          <div id="address-count-thresholds" hidden>
+            <label>
+              Target address count
+              <input type="number" id="target-address-count" value="15" min="0" step="1">
+            </label>
+            <label>
+              Band width (&plusmn;)
+              <input type="number" id="address-count-band" value="5" min="0" step="1">
+            </label>
+            <div class="muted">Areas at target+band or more are marked oversized (needs split); areas at target&minus;band or fewer are marked undersized (needs combine).</div>
+          </div>
         </div>
 
         <div id="filters">
@@ -189,7 +212,7 @@
         </div>
 
         <div id="feature-list-wrap">
-          <h2>Features <span class="muted">(sorted by area, smallest first)</span></h2>
+          <h2>Features <span class="muted" id="sort-order-label">(sorted by area, smallest first)</span></h2>
           <div id="feature-list">
             <div id="feature-list-sizer"></div>
           </div>
@@ -207,6 +230,7 @@
   <script src="version.js"></script>
   <script src="vendor/leaflet.js"></script>
   <script src="vendor/turf.min.js"></script>
+  <script src="data/oakville-address-points.js"></script>
   <script src="live.js"></script>
 </body>
 </html>

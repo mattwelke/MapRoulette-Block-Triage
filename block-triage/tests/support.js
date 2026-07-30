@@ -152,6 +152,21 @@ async function routeMrChallenge(page, challengeId, tasks) {
   return state;
 }
 
+// Intercepts live.html's <script src="data/oakville-address-points.js">
+// request and serves a small, deterministic set of [lng, lat] points
+// instead of the real ~71k-point Oakville dataset - keeps address-count
+// mode tests independent of that real-world data. Must be called before
+// page.goto(liveUrl()), same as routeMrChallenge.
+async function routeAddressPoints(page, points) {
+  await page.route("**/data/oakville-address-points.js", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/javascript",
+      body: `window.__BLOCK_TRIAGE_OAKVILLE_ADDRESS_POINTS__ = ${JSON.stringify(points)};`,
+    });
+  });
+}
+
 // Fills in the API key + challenge ID fields on live.html and clicks "Load
 // challenge from MapRoulette", waiting for the load to settle.
 async function loadLiveChallenge(page, challengeId, apiKey) {
@@ -261,5 +276,6 @@ module.exports = {
   makeMrTask,
   mrChallengeSampleTasks,
   routeMrChallenge,
+  routeAddressPoints,
   loadLiveChallenge,
 };

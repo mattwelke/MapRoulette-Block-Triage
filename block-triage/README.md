@@ -154,19 +154,39 @@ A persistent red **LIVE: editing MapRoulette challenge &lt;id&gt;** banner
 runs across the top of the page the whole time, so there's never any
 doubt that the actions here have real, remote consequences.
 
-**Area size coloring.** Unlike local file triage (which tracks a
+**Size coloring.** Unlike local file triage (which tracks a
 reviewed/kept/flagged status per area), live editing colors every area by
-how its size compares to a **target area limit** (set in the sidebar,
-defaulting to 5,000 m²):
-- **Oversized** (orange-red) — at least the target limit, drawing
-  attention to it as a candidate to split.
-- **Undersized** (yellow) — at most half the target limit, suggesting you
-  look for a neighboring area to combine it with.
-- **Normal** (blue) — anything in between; no action suggested.
+how its size compares to a target, in one of two **coloring modes** (a
+toggle in the sidebar, under "Coloring mode"):
 
-Changing the target area limit re-colors the map, the list, and the stats
+- **Area (m²)** — the original approach. Compares each area's m² against a
+  **target area limit** (defaulting to 5,000 m²):
+  - **Oversized** (orange-red) — at least the target limit, drawing
+    attention to it as a candidate to split.
+  - **Undersized** (yellow) — at most half the target limit, suggesting
+    you look for a neighboring area to combine it with.
+  - **Normal** (blue) — anything in between; no action suggested.
+- **Address count** — compares each area against a **target address
+  count** and a **band width** (defaulting to 15 and ±5):
+  - **Oversized** — at least target+band addresses inside it.
+  - **Undersized** — at most target−band addresses inside it.
+  - **Normal** — anything in between.
+
+  Address counts come from a Town of Oakville address-points open-data
+  extract, built into the app (`data/oakville-address-points.js`, just
+  `[lng, lat]` pairs — no other attributes are kept, since only geometry
+  matters for counting). Unlike the **Oakville addresses (skfd)** basemap
+  overlay below, which is a raster image for visual reference only, this
+  is real point data used to compute the count shown for each area. This
+  makes the app currently Oakville-specific: the file would need swapping
+  (and, if the layout of fields differs, `computeMetrics`/data-generation
+  updated) to point this mode at a different town's data.
+
+Each mode keeps its own target/band settings (so switching back and forth
+doesn't clobber either), and re-colors the map, the list, and the stats
 immediately — there's no separate "flagged" status here, just this
-size-based classification recomputed live from each area's current area.
+size-based classification recomputed live from each area's current
+geometry.
 
 **Per-area actions** (in the popup, alongside Split): for a linked area
 (one with a MapRoulette task, loaded or already added), a button reading

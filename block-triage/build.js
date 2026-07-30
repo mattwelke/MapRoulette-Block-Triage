@@ -24,7 +24,11 @@ const INCLUDE = [
   "README.md",
   "vendor",
   "sample-data",
+  "data",
 ];
+// data/oakville-address-points.js is ~1.7MB (71k [lng,lat] pairs) - large
+// for a static asset but well within what a static host serves fine,
+// especially compressed (most gzip/brotli automatically); see README.
 
 function copyRecursive(src, dest) {
   const stat = fs.statSync(src);

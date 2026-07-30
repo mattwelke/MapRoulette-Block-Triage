@@ -40,6 +40,62 @@
   // properties the next time a challenge is loaded (buildEntries).
   const LOW_DENSITY_PROPERTY = "_blockTriageLowDensity";
 
+  // Address-point counting mode: this app is hard-coded to Oakville, so the
+  // point data (window.__BLOCK_TRIAGE_OAKVILLE_ADDRESS_POINTS__, loaded via
+  // a plain <script> in live.html - see data/oakville-address-points.js for
+  // why not fetch()) is always present, not something a user loads. With
+  // ~71k points, testing every point against every area on every recompute
+  // would be far too slow, so they're bucketed into a coarse grid up front;
+  // countAddressPoints only tests the points in cells the area's bbox
+  // actually touches.
+  const ADDRESS_GRID_CELL_SIZE = 0.005; // ~400-550m at Oakville's latitude
+  const addressPointGrid = buildAddressPointGrid(window.__BLOCK_TRIAGE_OAKVILLE_ADDRESS_POINTS__ || []);
+
+  function buildAddressPointGrid(points) {
+    const cells = new Map();
+    const keyOf = (cx, cy) => cx + "," + cy;
+    points.forEach((pt) => {
+      const cx = Math.floor(pt[0] / ADDRESS_GRID_CELL_SIZE);
+      const cy = Math.floor(pt[1] / ADDRESS_GRID_CELL_SIZE);
+      const key = keyOf(cx, cy);
+      let cell = cells.get(key);
+      if (!cell) cells.set(key, (cell = []));
+      cell.push(pt);
+    });
+    return {
+      pointsNear(bbox) {
+        const [minX, minY, maxX, maxY] = bbox;
+        const cx0 = Math.floor(minX / ADDRESS_GRID_CELL_SIZE);
+        const cx1 = Math.floor(maxX / ADDRESS_GRID_CELL_SIZE);
+        const cy0 = Math.floor(minY / ADDRESS_GRID_CELL_SIZE);
+        const cy1 = Math.floor(maxY / ADDRESS_GRID_CELL_SIZE);
+        const result = [];
+        for (let cx = cx0; cx <= cx1; cx++) {
+          for (let cy = cy0; cy <= cy1; cy++) {
+            const cell = cells.get(keyOf(cx, cy));
+            if (cell) result.push(...cell);
+          }
+        }
+        return result;
+      },
+    };
+  }
+
+  function countAddressPoints(feature) {
+    let bbox;
+    try {
+      bbox = turf.bbox(feature);
+    } catch (err) {
+      return 0;
+    }
+    const candidates = addressPointGrid.pointsNear(bbox);
+    let count = 0;
+    for (const pt of candidates) {
+      if (turf.booleanPointInPolygon(pt, feature)) count++;
+    }
+    return count;
+  }
+
   function isLockedTaskStatus(rawStatus) {
     if (!rawStatus) return false;
     return LOCKED_TASK_STATUSES.has(String(rawStatus).replace(/_/g, " ").trim().toLowerCase());
@@ -242,6 +298,13 @@
   // Areas at least 2x this are "oversized" (a split candidate); areas at
   // most half this are "undersized" (a combine candidate) - see category().
   let targetAreaLimit = loadTargetAreaLimit();
+  // Which measure drives the oversized/undersized coloring - "area" (m²,
+  // the original approach) or "addressCount" (points from the built-in
+  // Oakville address layer). Independent target/band pairs are kept for
+  // each so switching modes doesn't clobber the other's settings.
+  let coloringMode = loadColoringMode();
+  let targetAddressCount = loadTargetAddressCount();
+  let addressCountBand = loadAddressCountBand();
   let newFeatureCounter = 0;
   let addedAreaCounter = 0;
   let undoStack = [];
@@ -411,6 +474,10 @@
   const featureListEl = document.getElementById("feature-list");
   const featureListSizerEl = document.getElementById("feature-list-sizer");
   const targetAreaLimitInput = document.getElementById("target-area-limit");
+  const areaThresholdsEl = document.getElementById("area-thresholds");
+  const addressCountThresholdsEl = document.getElementById("address-count-thresholds");
+  const targetAddressCountInput = document.getElementById("target-address-count");
+  const addressCountBandInput = document.getElementById("address-count-band");
   const appEl = document.getElementById("app");
   const undoBtn = document.getElementById("undo-btn");
   const redoBtn = document.getElementById("redo-btn");
@@ -565,7 +632,41 @@
     wakeMrWaitersIfRoom(); // a waiter blocked under the old, lower cap may now fit
   });
 
+  const sortOrderLabelEl = document.getElementById("sort-order-label");
+
   targetAreaLimitInput.value = targetAreaLimit;
+  targetAddressCountInput.value = targetAddressCount;
+  addressCountBandInput.value = addressCountBand;
+  document.querySelector(`input[name="coloring-mode"][value="${coloringMode}"]`).checked = true;
+  updateThresholdsVisibility();
+
+  function updateThresholdsVisibility() {
+    areaThresholdsEl.hidden = coloringMode !== "area";
+    addressCountThresholdsEl.hidden = coloringMode !== "addressCount";
+    sortOrderLabelEl.textContent =
+      coloringMode === "addressCount" ? "(sorted by address count, smallest first)" : "(sorted by area, smallest first)";
+  }
+
+  document.querySelectorAll('input[name="coloring-mode"]').forEach((el) => {
+    el.addEventListener("change", () => {
+      coloringMode = el.value;
+      saveColoringMode();
+      updateThresholdsVisibility();
+      recomputeCategoriesAndRender();
+    });
+  });
+
+  targetAddressCountInput.addEventListener("input", () => {
+    targetAddressCount = Number(targetAddressCountInput.value) || 0;
+    saveTargetAddressCount();
+    recomputeCategoriesAndRender();
+  });
+
+  addressCountBandInput.addEventListener("input", () => {
+    addressCountBand = Number(addressCountBandInput.value) || 0;
+    saveAddressCountBand();
+    recomputeCategoriesAndRender();
+  });
 
   referenceFileInput.addEventListener("change", (e) => {
     const file = e.target.files[0];
@@ -686,6 +787,37 @@
 
   function saveTargetAreaLimit() {
     localStorage.setItem("block-triage:targetAreaLimit", String(targetAreaLimit));
+  }
+
+  function loadColoringMode() {
+    const stored = localStorage.getItem("block-triage:coloringMode");
+    return stored === "addressCount" ? "addressCount" : "area";
+  }
+
+  function saveColoringMode() {
+    localStorage.setItem("block-triage:coloringMode", coloringMode);
+  }
+
+  function loadTargetAddressCount() {
+    const raw = localStorage.getItem("block-triage:targetAddressCount");
+    if (raw === null) return 15;
+    const stored = Number(raw);
+    return Number.isFinite(stored) && stored >= 0 ? stored : 15;
+  }
+
+  function saveTargetAddressCount() {
+    localStorage.setItem("block-triage:targetAddressCount", String(targetAddressCount));
+  }
+
+  function loadAddressCountBand() {
+    const raw = localStorage.getItem("block-triage:addressCountBand");
+    if (raw === null) return 5;
+    const stored = Number(raw);
+    return Number.isFinite(stored) && stored >= 0 ? stored : 5;
+  }
+
+  function saveAddressCountBand() {
+    localStorage.setItem("block-triage:addressCountBand", String(addressCountBand));
   }
 
   function hashString(str) {
@@ -1381,7 +1513,7 @@
 
     parsed.features.forEach((feature, idx) => {
       const id = hashString(JSON.stringify(feature.geometry));
-      const { area, compactness } = computeMetrics(feature);
+      const { area, compactness, addressCount } = computeMetrics(feature);
       const mrTaskStatus = (feature.properties && feature.properties.mr_taskStatus) || null;
 
       entries.set(id, {
@@ -1391,6 +1523,7 @@
         layer: null,
         area,
         compactness,
+        addressCount,
         mrTaskId: parseMrTaskId(feature),
         mrTaskStatus,
         mrLocked: isLockedTaskStatus(mrTaskStatus),
@@ -1412,17 +1545,23 @@
       console.warn("Could not compute metrics for feature", err);
     }
     const compactness = perimeter > 0 ? Math.min(1, (4 * Math.PI * area) / (perimeter * perimeter)) : 0;
-    return { area, compactness };
+    const addressCount = countAddressPoints(feature);
+    return { area, compactness, addressCount };
   }
 
   function category(entry) {
     if (entry.mrLocked) return "locked";
     if (entry.mrActiveLockedBy != null) return "active-lock";
-    // A "low density" mark exempts an area from the whole area-size rule -
-    // low-density blocks can legitimately land on either side of it (a
-    // sparse suburban block covering a lot of ground, or a small one with
-    // little in it) without either end meaning something's actually wrong.
+    // A "low density" mark exempts an area from the whole size rule - low-
+    // density blocks can legitimately land on either side of it (a sparse
+    // suburban block covering a lot of ground, or a small one with little
+    // in it) without either end meaning something's actually wrong.
     if (entry.lowDensity) return "normal";
+    if (coloringMode === "addressCount") {
+      if (entry.addressCount >= targetAddressCount + addressCountBand) return "oversized";
+      if (entry.addressCount <= targetAddressCount - addressCountBand) return "undersized";
+      return "normal";
+    }
     if (entry.area >= targetAreaLimit) return "oversized";
     if (entry.area <= targetAreaLimit * 0.5) return "undersized";
     return "normal";
@@ -1784,6 +1923,7 @@
       feature: entry.feature,
       area: entry.area,
       compactness: entry.compactness,
+      addressCount: entry.addressCount,
       mrTaskId: entry.mrTaskId,
       mrTaskStatus: entry.mrTaskStatus,
       mrLocked: entry.mrLocked,
@@ -1829,13 +1969,14 @@
 
     const originalSnapshot = snapshotEntry(entry);
     const newSnapshots = parts.map((part, i) => {
-      const { area, compactness } = computeMetrics(part);
+      const { area, compactness, addressCount } = computeMetrics(part);
       return {
         id: hashString(JSON.stringify(part.geometry) + ":" + newFeatureCounter++),
         idx: `${originalSnapshot.idx}${String.fromCharCode(97 + i)}`,
         feature: part,
         area,
         compactness,
+        addressCount,
         mrTaskId: null,
         mrTaskStatus: null,
         mrLocked: false,
@@ -2171,13 +2312,14 @@
       return;
     }
 
-    const { area, compactness } = computeMetrics(feature);
+    const { area, compactness, addressCount } = computeMetrics(feature);
     const snapshot = {
       id: hashString(JSON.stringify(feature.geometry) + ":" + newFeatureCounter++),
       idx: `new-${++addedAreaCounter}`,
       feature,
       area,
       compactness,
+      addressCount,
       mrTaskId: null,
       mrTaskStatus: null,
       mrLocked: false,
@@ -2319,7 +2461,7 @@
       return;
     }
     const combined = parts[0];
-    const { area, compactness } = computeMetrics(combined);
+    const { area, compactness, addressCount } = computeMetrics(combined);
 
     const originalSnapshots = targetEntries.map(snapshotEntry);
     originalSnapshots.forEach((snap) => {
@@ -2334,6 +2476,7 @@
       feature: combined,
       area,
       compactness,
+      addressCount,
       mrTaskId: null,
       mrTaskStatus: null,
       mrLocked: false,
@@ -2621,13 +2764,14 @@
       return;
     }
 
-    const { area, compactness } = computeMetrics(feature);
+    const { area, compactness, addressCount } = computeMetrics(feature);
     const snapshot = {
       id: hashString(JSON.stringify(feature.geometry) + ":" + newFeatureCounter++),
       idx: `replace-${replaceState.newSnapshots.length + 1}`,
       feature,
       area,
       compactness,
+      addressCount,
       mrTaskId: null,
       mrTaskStatus: null,
       mrLocked: false,
@@ -2911,10 +3055,11 @@
   // place - same id, same MapRoulette linkage, just a reshaped boundary.
   // The entry's old layer must already be off the map by the time this runs.
   function applyEditedGeometry(entry, feature) {
-    const { area, compactness } = computeMetrics(feature);
+    const { area, compactness, addressCount } = computeMetrics(feature);
     entry.feature = feature;
     entry.area = area;
     entry.compactness = compactness;
+    entry.addressCount = addressCount;
     attachLayer(entry);
     if (selectedId === entry.id) updateSelectionPulse();
   }
@@ -3125,11 +3270,16 @@
   function updateStats() {
     let normal = 0, oversized = 0, undersized = 0;
     entries.forEach((e) => {
-      // Mirrors category()'s own low-density exemption - without this check
-      // here too, a low-density area would render as normal (blue) on the
-      // map but still get counted as oversized/undersized in these totals.
+      // Mirrors category()'s own low-density exemption and per-mode logic -
+      // without this check here too, a low-density area would render as
+      // normal (blue) on the map but still get counted as oversized/
+      // undersized in these totals.
       if (e.lowDensity) normal++;
-      else if (e.area >= targetAreaLimit) oversized++;
+      else if (coloringMode === "addressCount") {
+        if (e.addressCount >= targetAddressCount + addressCountBand) oversized++;
+        else if (e.addressCount <= targetAddressCount - addressCountBand) undersized++;
+        else normal++;
+      } else if (e.area >= targetAreaLimit) oversized++;
       else if (e.area <= targetAreaLimit * 0.5) undersized++;
       else normal++;
     });
@@ -3151,6 +3301,13 @@
     return checked ? checked.value : "all";
   }
 
+  // The sort key follows the active coloring mode - e.g. in address-count
+  // mode the list is sorted by address count (smallest first), not area,
+  // since that's the measure driving the coloring you're reviewing against.
+  function sortMetric(entry) {
+    return coloringMode === "addressCount" ? entry.addressCount : entry.area;
+  }
+
   function filteredSortedIds() {
     const filter = currentFilter();
     return orderedIds
@@ -3159,7 +3316,7 @@
         if (filter === "all") return true;
         return category(e) === filter;
       })
-      .sort((a, b) => entries.get(a).area - entries.get(b).area);
+      .sort((a, b) => sortMetric(entries.get(a)) - sortMetric(entries.get(b)));
   }
 
   // The list is virtualized: with thousands of tasks loaded, building a DOM
@@ -3230,6 +3387,7 @@
           <span class="id">#${e.idx}</span>
           <span>${e.area.toFixed(0)} m&sup2;</span>
           <span>${e.compactness.toFixed(2)}</span>
+          <span>${e.addressCount} addr</span>
         </span>
       `;
       row.addEventListener("click", () => {
