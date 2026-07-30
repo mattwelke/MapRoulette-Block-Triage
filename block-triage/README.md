@@ -531,6 +531,11 @@ toggling the mark on an already-linked task queues a re-sync (reusing the
 same delete-then-recreate mechanism the boundary-edit queue uses) since
 there's no in-place property update used anywhere in this app.
 
+`scripts/clear_low_density.py` is a standalone (non-front-end) cleanup
+script for anyone who's decided they no longer want this exemption and has
+existing live challenges carrying the mark - see its own docstring for
+usage.
+
 ## Why compactness, not just area
 
 Some artifacts (thin slivers between the two carriageways of a divided
