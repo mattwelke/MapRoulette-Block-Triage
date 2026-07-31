@@ -8,16 +8,21 @@
 <meta name="theme-color" content="#3388ff">
 <link rel="icon" href="icons/icon-192.png">
 <link rel="apple-touch-icon" href="icons/icon-192.png">
+<link rel="stylesheet" href="vendor/material/m3-tokens.css">
 <style>
   * { box-sizing: border-box; }
   html, body {
     height: 100%;
     margin: 0;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    /* No font-family override - the typescale font() shorthands below
+       already carry Material 3's own font stack (Roboto Flex/Roboto/Noto
+       Sans, falling back to system-ui/sans-serif since this app doesn't
+       vendor those fonts). */
     display: flex;
     align-items: center;
     justify-content: center;
-    background: #fafafa;
+    background: var(--md-sys-color-surface, #fafafa);
+    color: var(--md-sys-color-on-surface, #1d1b20);
   }
   main {
     width: 100%;
@@ -26,12 +31,12 @@
     text-align: center;
   }
   h1 {
-    font-size: 1.3rem;
+    font: var(--md-sys-typescale-headline-sm, 600 1.3rem/1.5 sans-serif);
     margin: 0 0 0.3rem;
   }
   p.sub {
-    color: #666;
-    font-size: 0.9rem;
+    font: var(--md-sys-typescale-body-md, 0.9rem/1.3 sans-serif);
+    color: var(--md-sys-color-on-surface-variant, #666);
     margin: 0 0 1.5rem;
   }
   .choice {
@@ -39,25 +44,24 @@
     width: 100%;
     text-decoration: none;
     color: inherit;
-    background: #fff;
-    border: 1px solid #ccc;
-    border-radius: 10px;
+    background: var(--md-sys-color-surface-container, #fff);
+    border: 1px solid var(--md-sys-color-outline-variant, #ccc);
+    border-radius: var(--md-sys-shape-corner-lg, 16px);
     padding: 1rem 1.2rem;
     margin-bottom: 1rem;
     text-align: left;
     cursor: pointer;
   }
-  .choice:active { background: #f0f4ff; }
+  .choice:active { background: var(--md-sys-color-surface-container-high, #f0f4ff); }
   .choice .title {
-    font-size: 1.05rem;
-    font-weight: 600;
+    font: var(--md-sys-typescale-title-md, 600 1.05rem/1.4 sans-serif);
     display: flex;
     align-items: center;
     gap: 0.5rem;
   }
   .choice .desc {
-    font-size: 0.85rem;
-    color: #666;
+    font: var(--md-sys-typescale-body-sm, 0.85rem/1.4 sans-serif);
+    color: var(--md-sys-color-on-surface-variant, #666);
     margin-top: 0.3rem;
   }
 </style>
