@@ -13,6 +13,21 @@
    so color-scheme is pinned to light-only here to keep that off. */
 :root {
   color-scheme: light;
+  /* m3-tokens.css's typescale tokens (e.g. --md-sys-typescale-label-lg)
+     reference --md-ref-typeface-brand/plain and the weight-* tokens, but
+     none of those are actually defined anywhere in the vendored file - they
+     only get emitted by a Sass theme() mixin we don't run. Every `font:
+     var(--md-sys-typescale-*, ...)` shorthand in this file was therefore
+     silently invalid (an unresolvable var() nested inside it), which made
+     the whole `font` property invalid at computed-value time and fall back
+     to inheriting the browser's serif default - not the fallback text in
+     the var() call, since that only applies when the outer property itself
+     is undefined. Defining these fixes every typescale shorthand at once. */
+  --md-ref-typeface-brand: "Roboto", system-ui, sans-serif;
+  --md-ref-typeface-plain: "Roboto", system-ui, sans-serif;
+  --md-ref-typeface-weight-regular: 400;
+  --md-ref-typeface-weight-medium: 500;
+  --md-ref-typeface-weight-bold: 700;
   --unreviewed: var(--md-ref-palette-blue40, #3388ff);
   --flagged: var(--md-ref-palette-orange60, #ff9800);
   --kept: var(--md-ref-palette-green60, #43a047);
@@ -31,8 +46,11 @@
 html, body {
   height: 100%;
   margin: 0;
-  /* No font-family override here - the typescale font() shorthands used
-     throughout this file already carry Material 3's own font stack. */
+  /* Base font for every element not already wrapped in one of the
+     typescale font() shorthands below (most plain divs/labels/spans in the
+     sidebar and popups aren't) - Roboto is M3's default typeface, vendored
+     locally in vendor/material/roboto-fonts.css. */
+  font-family: "Roboto", system-ui, sans-serif;
   font-size: 14px;
 }
 
@@ -121,24 +139,27 @@ input[type="password"] {
   border-left: 1px solid var(--border);
 }
 
-/* Outlined-button look, M3's usual choice for a toolbar dense with
-   equally-weighted actions rather than one obvious primary action -
-   transparent fill, an outline, and primary-colored text, with a subtle
-   "state layer" tint (color-mix over transparent) on hover, matching how
-   M3 itself treats hover/focus as a translucent overlay rather than a
-   flat color swap. */
+/* Filled-tonal button look. An earlier attempt used a transparent fill with
+   primary-colored text/border, which read as too washed-out against the
+   panel and didn't give the label enough contrast either. Filled-tonal
+   pairs a solid secondary-container background with its matching
+   on-secondary-container text - that on-*-container pairing is M3's own
+   guaranteed-contrast combo, so the label is always readable, and the
+   solid fill (plus a thin outline-variant border for a crisp edge even
+   where the container color is tonally close to the surface behind it)
+   makes the button itself stand out from the panel. */
 .btn, button {
   cursor: pointer;
-  border: 1px solid var(--md-sys-color-outline, #999);
-  background: transparent;
-  color: var(--md-sys-color-primary, #333);
+  border: 1px solid var(--md-sys-color-outline-variant, #ccc);
+  background: var(--md-sys-color-secondary-container, #e0e0e0);
+  color: var(--md-sys-color-on-secondary-container, #1d1b20);
   border-radius: var(--md-sys-shape-corner-xl, 28px); /* M3's signature rounded, near-pill buttons */
   padding: 0.35rem 0.75rem;
   font: var(--md-sys-typescale-label-lg, 0.9rem/1.25 sans-serif);
 }
 
 .btn:hover, button:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--md-sys-color-primary, #333) 8%, transparent);
+  background: color-mix(in srgb, var(--md-sys-color-on-secondary-container, #1d1b20) 10%, var(--md-sys-color-secondary-container, #e0e0e0));
 }
 
 button:disabled { opacity: 0.5; cursor: not-allowed; }
@@ -222,7 +243,18 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
   border-right: 1px solid var(--border);
   background: var(--bg-sidebar);
   overflow-y: auto;
-  padding: 0.75rem;
+  padding: 1rem;
+}
+
+/* Vertical rhythm between sections lives here, not on h2's own top margin -
+   every section is its own wrapper div (#stats, #maproulette, #thresholds,
+   #filters, #legend, #overlap-check, #shortcuts, #feature-list-wrap) with
+   its heading as that div's first child. A `h2:first-child` rule matches
+   "first child of its own parent", which every one of those headings is -
+   so it was zeroing out the gap above literally every section, not just
+   the sidebar's first one, and everything read as one dense block. */
+#sidebar > div + div {
+  margin-top: var(--md-sys-space-400, 2rem);
 }
 
 #sidebar h2 {
@@ -230,10 +262,8 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: var(--md-sys-color-on-surface-variant, #555);
-  margin: 1rem 0 0.4rem;
+  margin: 0 0 var(--md-sys-space-150, 0.75rem);
 }
-
-#sidebar h2:first-child { margin-top: 0; }
 
 #stats {
   font-size: 0.85rem;
@@ -243,14 +273,14 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 #maproulette label {
   display: block;
   font-size: 0.85rem;
-  margin-bottom: 0.4rem;
+  margin-bottom: 0.6rem;
 }
 
 #maproulette .toggle-label {
   display: flex;
   align-items: center;
   gap: 0.4rem;
-  margin-bottom: 0.3rem;
+  margin-bottom: 0.5rem;
 }
 
 #maproulette input[type="password"],
@@ -283,7 +313,7 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 #maproulette hr {
   border: none;
   border-top: 1px solid var(--border);
-  margin: 0.75rem 0;
+  margin: var(--md-sys-space-300, 1.5rem) 0;
 }
 
 #mr-status,
@@ -292,7 +322,7 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 #mr-queue-status,
 #mr-add-queue-status,
 #mr-edit-queue-status {
-  margin-top: 0.4rem;
+  margin-top: 0.6rem;
   font-size: 0.8rem;
 }
 
@@ -343,7 +373,7 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 #thresholds label, #filters label {
   display: block;
   font-size: 0.85rem;
-  margin-bottom: 0.3rem;
+  margin-bottom: 0.5rem;
 }
 
 #thresholds input[type="number"] {
