@@ -1,19 +1,34 @@
-/* Colors are sourced from Material Design 3 (vendor/material/m3-tokens.css,
-   linked before this file - see index.html/local.html/live.html) via its
-   --md-sys-*/--md-ref-palette-* custom properties. Every var() here keeps
-   this file's original hardcoded value as its fallback, so nothing breaks
-   if that stylesheet is ever missing. Status colors are re-sourced from
-   M3's full reference palette (a named hue per swatch - blue/orange/green/
-   grey/purple/red/yellow/pink/cyan) instead of ad-hoc hex.
+/* ============================================================================
+   THEME - see TWEAKING_DESIGN.md for a guided walkthrough of this block.
+
+   Every color and spacing value used anywhere else in this file is a
+   var() reference into this one :root block - nothing else in this file
+   should need to change to retheme or respace the app. Colors are sourced
+   from Material Design 3 (vendor/material/m3-tokens.css, linked before
+   this file - see index.html/local.html/live.html) via its --md-sys-* and
+   --md-ref-palette-* custom properties; every alias below keeps this
+   file's original hardcoded value as its own fallback, so nothing breaks
+   if that stylesheet is ever missing.
 
    m3-tokens.css sets `color-scheme: light dark` and uses the CSS
    light-dark() function throughout, so its tokens would otherwise switch
    to dark values automatically under a dark OS/browser preference - this
    app doesn't have a dark theme (an earlier attempt at one was reverted),
-   so color-scheme is pinned to light-only here to keep that off. */
+   so color-scheme is pinned to light-only here to keep that off.
+   ============================================================================ */
 :root {
   color-scheme: light;
-  /* m3-tokens.css's typescale tokens (e.g. --md-sys-typescale-label-lg)
+
+  /* --- Spacing scale --------------------------------------------------
+     Multiplies every sidebar/panel vertical gap below (section spacing,
+     heading margins, hr margins, label stacking, status-line spacing).
+     1 = this file's own defaults. Try 0.6-0.8 for tighter, 1.2+ for
+     airier. This is the only number you need to change to adjust overall
+     spacing app-wide. */
+  --space-scale: 1;
+
+  /* --- Typeface ---------------------------------------------------------
+     m3-tokens.css's typescale tokens (e.g. --md-sys-typescale-label-lg)
      reference --md-ref-typeface-brand/plain and the weight-* tokens, but
      none of those are actually defined anywhere in the vendored file - they
      only get emitted by a Sass theme() mixin we don't run. Every `font:
@@ -28,6 +43,14 @@
   --md-ref-typeface-weight-regular: 400;
   --md-ref-typeface-weight-medium: 500;
   --md-ref-typeface-weight-bold: 700;
+
+  /* --- Color palette ----------------------------------------------------
+     Area/task status colors (used for map fills, list dots, legend
+     swatches) and queue/action indicator colors. Each references a named
+     hue from M3's reference palette (vendor/material/m3-tokens.css) -
+     point one at a different --md-ref-palette-<hue><step> to change its
+     shade, or replace the whole var() with a literal hex to bypass M3
+     entirely. */
   --unreviewed: var(--md-ref-palette-blue40, #3388ff);
   --flagged: var(--md-ref-palette-orange60, #ff9800);
   --kept: var(--md-ref-palette-green60, #43a047);
@@ -37,8 +60,28 @@
   --oversized: var(--md-ref-palette-red50, #e64a19);
   --undersized: var(--md-ref-palette-yellow80, #fbc02d);
   --overlap: var(--md-ref-palette-pink50, #e91e63);
-  --border: var(--md-sys-color-outline-variant, #ddd);
+  --combine-action: var(--md-ref-palette-purple40, #9c27b0);
+  --replace-action: var(--md-ref-palette-cyan50, #00838f);
+
+  /* General UI roles (surfaces, borders, text, the filled-tonal button
+     look) - these point at M3's own semantic tokens, so retheming them
+     usually means changing m3-tokens.css's underlying reference-palette
+     seed values instead of editing here; but you can also just override
+     any of these directly. */
+  --surface: var(--md-sys-color-surface, #fff);
+  --surface-container-high: var(--md-sys-color-surface-container-high, #eee);
+  --surface-container-highest: var(--md-sys-color-surface-container-highest, #fff);
   --bg-sidebar: var(--md-sys-color-surface-container-low, #fafafa);
+  --on-surface: var(--md-sys-color-on-surface, #1d1b20);
+  --on-surface-variant: var(--md-sys-color-on-surface-variant, #555);
+  --border: var(--md-sys-color-outline-variant, #ddd);
+  --outline: var(--md-sys-color-outline, #999);
+  --error: var(--md-sys-color-error, #b71c1c);
+  --on-error: var(--md-sys-color-on-error, #fff);
+  --inverse-surface: var(--md-sys-color-inverse-surface, #222);
+  --inverse-on-surface: var(--md-sys-color-inverse-on-surface, #fff);
+  --btn-bg: var(--md-sys-color-secondary-container, #e0e0e0);
+  --btn-text: var(--md-sys-color-on-secondary-container, #1d1b20);
 }
 
 * { box-sizing: border-box; }
@@ -57,9 +100,9 @@ html, body {
 input[type="text"],
 input[type="number"],
 input[type="password"] {
-  border: 1px solid var(--md-sys-color-outline, #999);
-  background: var(--md-sys-color-surface-container-highest, #fff);
-  color: var(--md-sys-color-on-surface, #1d1b20);
+  border: 1px solid var(--outline);
+  background: var(--surface-container-highest);
+  color: var(--on-surface);
   border-radius: var(--md-sys-shape-corner-xs, 4px);
   padding: 0.3rem;
 }
@@ -90,15 +133,15 @@ input[type="password"] {
   gap: 1rem;
   padding: 0.5rem 1rem;
   border-bottom: 1px solid var(--border);
-  background: var(--md-sys-color-surface, #fff);
+  background: var(--surface);
   flex-shrink: 0;
 }
 
 #mr-live-banner {
   flex-shrink: 0;
   display: block;
-  background: var(--md-sys-color-error, #b71c1c);
-  color: var(--md-sys-color-on-error, #fff);
+  background: var(--error);
+  color: var(--on-error);
   font-weight: 600;
   text-align: center;
   padding: 0.35rem;
@@ -117,7 +160,7 @@ input[type="password"] {
 
 #back-link {
   text-decoration: none;
-  color: var(--md-sys-color-on-surface-variant, #333);
+  color: var(--on-surface-variant);
   font-size: 1.2rem;
   line-height: 1;
 }
@@ -150,21 +193,21 @@ input[type="password"] {
    makes the button itself stand out from the panel. */
 .btn, button {
   cursor: pointer;
-  border: 1px solid var(--md-sys-color-outline-variant, #ccc);
-  background: var(--md-sys-color-secondary-container, #e0e0e0);
-  color: var(--md-sys-color-on-secondary-container, #1d1b20);
+  border: 1px solid var(--border);
+  background: var(--btn-bg);
+  color: var(--btn-text);
   border-radius: var(--md-sys-shape-corner-xl, 28px); /* M3's signature rounded, near-pill buttons */
   padding: 0.35rem 0.75rem;
   font: var(--md-sys-typescale-label-lg, 0.9rem/1.25 sans-serif);
 }
 
 .btn:hover, button:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--md-sys-color-on-secondary-container, #1d1b20) 10%, var(--md-sys-color-secondary-container, #e0e0e0));
+  background: color-mix(in srgb, var(--btn-text) 10%, var(--btn-bg));
 }
 
 button:disabled { opacity: 0.5; cursor: not-allowed; }
 
-.muted { color: var(--md-sys-color-on-surface-variant, #777); font-size: 0.85rem; }
+.muted { color: var(--on-surface-variant); font-size: 0.85rem; }
 
 .toggle-label {
   display: flex;
@@ -178,7 +221,7 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 .toggle-label input { cursor: pointer; }
 
 #app.quick-remove-active #quick-remove-toggle {
-  color: var(--md-sys-color-error, #b71c1c);
+  color: var(--error);
   font-weight: 600;
 }
 
@@ -188,7 +231,7 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 }
 
 #app.mr-quick-queue-active #mr-quick-queue-toggle {
-  color: var(--md-sys-color-error, #b71c1c);
+  color: var(--error);
   font-weight: 600;
 }
 
@@ -207,8 +250,8 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
   width: fit-content;
   max-width: calc(100% - 372px);
   z-index: 1000;
-  background: var(--md-sys-color-inverse-surface, #222);
-  color: var(--md-sys-color-inverse-on-surface, #fff);
+  background: var(--inverse-surface);
+  color: var(--inverse-on-surface);
   padding: 0.5rem 0.75rem;
   border-radius: var(--md-sys-shape-corner-md, 12px);
   display: flex;
@@ -219,8 +262,8 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 }
 
 #draw-status button {
-  background: var(--md-sys-color-surface, #fff);
-  color: var(--md-sys-color-on-surface, #1d1b20);
+  background: var(--surface);
+  color: var(--on-surface);
   border: none;
   padding: 0.25rem 0.6rem;
   white-space: nowrap;
@@ -243,7 +286,7 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
   border-right: 1px solid var(--border);
   background: var(--bg-sidebar);
   overflow-y: auto;
-  padding: 1rem;
+  padding: calc(var(--space-scale) * 1rem);
 }
 
 /* Vertical rhythm between sections lives here, not on h2's own top margin -
@@ -254,15 +297,15 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
    so it was zeroing out the gap above literally every section, not just
    the sidebar's first one, and everything read as one dense block. */
 #sidebar > div + div {
-  margin-top: var(--md-sys-space-400, 2rem);
+  margin-top: calc(var(--space-scale) * 2rem);
 }
 
 #sidebar h2 {
   font-size: 0.8rem;
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  color: var(--md-sys-color-on-surface-variant, #555);
-  margin: 0 0 var(--md-sys-space-150, 0.75rem);
+  color: var(--on-surface-variant);
+  margin: 0 0 calc(var(--space-scale) * 0.75rem);
 }
 
 #stats {
@@ -273,14 +316,14 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 #maproulette label {
   display: block;
   font-size: 0.85rem;
-  margin-bottom: 0.6rem;
+  margin-bottom: calc(var(--space-scale) * 0.6rem);
 }
 
 #maproulette .toggle-label {
   display: flex;
   align-items: center;
   gap: 0.4rem;
-  margin-bottom: 0.5rem;
+  margin-bottom: calc(var(--space-scale) * 0.5rem);
 }
 
 #maproulette input[type="password"],
@@ -313,7 +356,7 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 #maproulette hr {
   border: none;
   border-top: 1px solid var(--border);
-  margin: var(--md-sys-space-300, 1.5rem) 0;
+  margin: calc(var(--space-scale) * 1.5rem) 0;
 }
 
 #mr-status,
@@ -322,7 +365,7 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 #mr-queue-status,
 #mr-add-queue-status,
 #mr-edit-queue-status {
-  margin-top: 0.6rem;
+  margin-top: calc(var(--space-scale) * 0.6rem);
   font-size: 0.8rem;
 }
 
@@ -337,19 +380,19 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
    green reference-palette hue as the "kept" status swatch above. */
 #mr-status.mr-success,
 #mr-load-status.mr-success {
-  color: var(--md-ref-palette-green60, #2e7d32);
+  color: var(--kept);
 }
 
 #mr-status.mr-error,
 #mr-load-status.mr-error,
 #mr-lock-poll-status.mr-error {
-  color: var(--md-sys-color-error, #c62828);
+  color: var(--error);
 }
 
 .mr-inline-status {
   font-size: 0.8rem;
-  margin-top: 0.3rem;
-  color: var(--md-sys-color-on-surface-variant, #555);
+  margin-top: calc(var(--space-scale) * 0.3rem);
+  color: var(--on-surface-variant);
 }
 
 @keyframes selection-pulse {
@@ -363,17 +406,17 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .mr-locked-note {
   font-size: 0.8rem;
-  margin-top: 0.4rem;
+  margin-top: calc(var(--space-scale) * 0.4rem);
   padding: 0.35rem 0.5rem;
-  background: var(--md-sys-color-surface-container-high, #f0f0f0);
+  background: var(--surface-container-high);
   border-radius: var(--md-sys-shape-corner-xs, 4px);
-  color: var(--md-sys-color-on-surface, #444);
+  color: var(--on-surface);
 }
 
 #thresholds label, #filters label {
   display: block;
   font-size: 0.85rem;
-  margin-bottom: 0.5rem;
+  margin-bottom: calc(var(--space-scale) * 0.5rem);
 }
 
 #thresholds input[type="number"] {
@@ -382,7 +425,7 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 
 #legend div, #shortcuts div {
   font-size: 0.82rem;
-  margin-bottom: 0.25rem;
+  margin-bottom: calc(var(--space-scale) * 0.25rem);
   display: flex;
   align-items: center;
   gap: 0.4rem;
@@ -407,8 +450,8 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 .swatch.overlap { background: var(--overlap); }
 
 kbd {
-  background: var(--md-sys-color-surface-container-high, #eee);
-  border: 1px solid var(--md-sys-color-outline-variant, #ccc);
+  background: var(--surface-container-high);
+  border: 1px solid var(--border);
   border-radius: var(--md-sys-shape-corner-xs, 4px);
   padding: 0 0.3rem;
   font-family: monospace;
@@ -434,7 +477,7 @@ kbd {
   gap: 0.5rem;
   padding: 0.35rem 0.5rem;
   border-radius: var(--md-sys-shape-corner-xs, 4px);
-  background: var(--md-sys-color-surface, #fff);
+  background: var(--surface);
   border: 1px solid var(--border);
   cursor: pointer;
   font-size: 0.8rem;
@@ -475,66 +518,70 @@ kbd {
   overflow: hidden;
 }
 
-.feature-row:hover { background: var(--md-sys-color-surface-container-high, #f0f4ff); }
+.feature-row:hover { background: var(--surface-container-high); }
 
 .feature-row.selected {
-  border-color: var(--md-sys-color-outline, #333);
-  box-shadow: 0 0 0 1px var(--md-sys-color-outline, #333) inset;
+  border-color: var(--outline);
+  box-shadow: 0 0 0 1px var(--outline) inset;
 }
 
+/* The queued/selected background tints below are derived from the same
+   palette aliases as their border color (color-mix against the surface),
+   rather than separately hand-picked hex - so retheming e.g. --kept in
+   the theme block also retunes its matching "add queued" tint. */
 .feature-row.combine-selected {
-  border-color: var(--md-ref-palette-purple40, #9c27b0);
-  box-shadow: 0 0 0 1px var(--md-ref-palette-purple40, #9c27b0) inset;
-  background: #f6ecf9;
+  border-color: var(--combine-action);
+  box-shadow: 0 0 0 1px var(--combine-action) inset;
+  background: color-mix(in srgb, var(--combine-action) 12%, var(--surface));
 }
 
 .feature-row.replace-selected {
-  border-color: var(--md-ref-palette-cyan50, #00838f);
-  box-shadow: 0 0 0 1px var(--md-ref-palette-cyan50, #00838f) inset;
-  background: #e0f4f6;
+  border-color: var(--replace-action);
+  box-shadow: 0 0 0 1px var(--replace-action) inset;
+  background: color-mix(in srgb, var(--replace-action) 12%, var(--surface));
 }
 
 .feature-row.mr-delete-queued {
-  border-color: var(--md-sys-color-error, #b71c1c);
-  box-shadow: 0 0 0 1px var(--md-sys-color-error, #b71c1c) inset;
-  background: #fdeaea;
+  border-color: var(--error);
+  box-shadow: 0 0 0 1px var(--error) inset;
+  background: color-mix(in srgb, var(--error) 8%, var(--surface));
 }
 
 .feature-row.mr-add-queued {
-  border-color: var(--md-ref-palette-green60, #2e7d32);
-  box-shadow: 0 0 0 1px var(--md-ref-palette-green60, #2e7d32) inset;
-  background: #eaf5ea;
+  border-color: var(--kept);
+  box-shadow: 0 0 0 1px var(--kept) inset;
+  background: color-mix(in srgb, var(--kept) 12%, var(--surface));
 }
 
 .feature-row.mr-edit-queued {
-  border-color: var(--md-ref-palette-blue40, #1565c0);
-  box-shadow: 0 0 0 1px var(--md-ref-palette-blue40, #1565c0) inset;
-  background: #e8f0fb;
+  border-color: var(--normal);
+  box-shadow: 0 0 0 1px var(--normal) inset;
+  background: color-mix(in srgb, var(--normal) 10%, var(--surface));
 }
 
 .feature-row.mr-split-queued {
-  border-color: var(--md-ref-palette-orange60, #ef6c00);
-  box-shadow: 0 0 0 1px var(--md-ref-palette-orange60, #ef6c00) inset;
-  background: #fff3e0;
+  border-color: var(--flagged);
+  box-shadow: 0 0 0 1px var(--flagged) inset;
+  background: color-mix(in srgb, var(--flagged) 12%, var(--surface));
 }
 
 .feature-row.mr-replace-queued {
-  border-color: var(--md-ref-palette-cyan50, #00838f);
-  box-shadow: 0 0 0 1px var(--md-ref-palette-cyan50, #00838f) inset;
-  background: #e0f4f6;
+  border-color: var(--replace-action);
+  box-shadow: 0 0 0 1px var(--replace-action) inset;
+  background: color-mix(in srgb, var(--replace-action) 12%, var(--surface));
 }
 
 .feature-row.mr-combine-queued {
-  border-color: var(--md-ref-palette-purple40, #9c27b0);
-  box-shadow: 0 0 0 1px var(--md-ref-palette-purple40, #9c27b0) inset;
-  background: #f6ecf9;
+  border-color: var(--combine-action);
+  box-shadow: 0 0 0 1px var(--combine-action) inset;
+  background: color-mix(in srgb, var(--combine-action) 12%, var(--surface));
 }
 
 .edit-vertex-icon {
   width: 14px;
   height: 14px;
-  background: var(--md-sys-color-surface, #fff);
-  border: 2px solid var(--md-ref-palette-blue40, #1565c0);
+  background: var(--surface);
+  border: 2px solid var(--normal);
   border-radius: 50%;
   cursor: grab;
 }
@@ -563,7 +610,7 @@ kbd {
   overflow: hidden;
 }
 
-.feature-row .id { color: var(--md-sys-color-on-surface-variant, #888); }
+.feature-row .id { color: var(--on-surface-variant); }
 
 .leaflet-popup-content {
   font-size: 0.85rem;
@@ -572,7 +619,7 @@ kbd {
 .popup-actions {
   display: flex;
   gap: 0.4rem;
-  margin-top: 0.4rem;
+  margin-top: calc(var(--space-scale) * 0.4rem);
 }
 
 .popup-actions button {
@@ -603,7 +650,7 @@ kbd {
   max-width: calc(100vw - 24px);
   max-height: 70vh;
   overflow-y: auto;
-  background: var(--md-sys-color-surface, #fff);
+  background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--md-sys-shape-corner-lg, 16px);
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
@@ -620,15 +667,15 @@ kbd {
   line-height: 1;
   padding: 0.25rem;
   cursor: pointer;
-  color: var(--md-sys-color-on-surface-variant, #777);
+  color: var(--on-surface-variant);
 }
 
 .tablet-panel-close:hover {
-  color: var(--md-sys-color-on-surface, #222);
+  color: var(--on-surface);
 }
 
 .tablet-panel-content {
-  margin-top: 1.25rem;
+  margin-top: calc(var(--space-scale) * 1.25rem);
 }
 
 @media (pointer: coarse) and (hover: none) and (min-width: 600px) {
