@@ -1720,10 +1720,10 @@
           : ""
       }
       ${
-        splitPending && splitGroup && splitGroup.originalWasCouldNotComplete
-          ? `<label class="toggle-label" title="This area was Could Not Complete on MapRoulette because the address layer is missing unit numbers here. Check this on whichever resulting piece(s) still have that problem - the rest come out as normal new tasks.">
+        splitPending
+          ? `<label class="toggle-label" title="E.g. the address layer is still missing unit numbers for this piece. Check whichever resulting piece(s) apply - the rest come out as normal new tasks.">
               <input type="checkbox" data-keep-could-not-complete ${entry.pendingCouldNotComplete ? "checked" : ""}>
-              Keep as Could Not Complete
+              Mark as Could Not Complete
             </label>`
           : ""
       }
@@ -1750,6 +1750,11 @@
           : `<div class="popup-actions">
               <button data-mr-action></button>
               ${entry.mrTaskId ? "" : `<button data-mr-add-now>Add now</button>`}
+              ${
+                entry.mrTaskId && entry.mrTaskStatus !== COULD_NOT_COMPLETE_STATUS_NAME
+                  ? `<button data-mark-could-not-complete>Mark as Could Not Complete</button>`
+                  : ""
+              }
             </div><div class="mr-inline-status" data-mr-status></div>`
       }
     `;
@@ -1880,6 +1885,30 @@
       });
     }
 
+    const markCouldNotCompleteBtn = div.querySelector("[data-mark-could-not-complete]");
+    if (markCouldNotCompleteBtn) {
+      markCouldNotCompleteBtn.addEventListener("click", async () => {
+        markCouldNotCompleteBtn.disabled = true;
+        mrBtn.disabled = true;
+        mrStatusInline.textContent = "Marking as Could Not Complete…";
+        try {
+          await mrSetTaskStatus(entry.mrTaskId, COULD_NOT_COMPLETE_STATUS_CODE);
+          entry.mrTaskStatus = COULD_NOT_COMPLETE_STATUS_NAME;
+          entry.layer.setStyle(styleFor(entry));
+          mrStatusInline.textContent = "Marked as Could Not Complete.";
+          renderList();
+          markCouldNotCompleteBtn.remove(); // no longer relevant - already marked now
+        } catch (err) {
+          mrStatusInline.textContent = "Failed: " + err.message;
+        } finally {
+          if (entries.has(entry.id)) {
+            mrBtn.disabled = false;
+            markCouldNotCompleteBtn.disabled = false;
+          }
+        }
+      });
+    }
+
     presentPopup(entry, div);
   }
 
@@ -1993,11 +2022,10 @@
         mrLocked: false,
         mrActiveLockedBy: null,
         // Whether this piece should be set to Too_Hard ("Could Not
-        // Complete") once its replacement task is created - see
-        // queueSplit's originalWasCouldNotComplete and the "Keep as Could
-        // Not Complete" checkbox in openPopup. Defaults unmarked even when
-        // splitting a Too_Hard area - the user picks which piece(s), if
-        // any, should stay Too_Hard.
+        // Complete") once its replacement task is created - see the "Mark
+        // as Could Not Complete" checkbox in openPopup. Defaults unmarked
+        // regardless of the original's own status - the user picks which
+        // piece(s), if any, should end up Too_Hard.
         pendingCouldNotComplete: false,
       };
     });
@@ -2083,11 +2111,7 @@
     newSnapshots.forEach((snap) => restoreEntryFromSnapshot(snap));
     updateMrAddQueueButton();
 
-    splitQueue.set(groupId, {
-      originalSnapshot: replacedSnapshot,
-      newSnapshots,
-      originalWasCouldNotComplete: replacedSnapshot.mrTaskStatus === COULD_NOT_COMPLETE_STATUS_NAME,
-    });
+    splitQueue.set(groupId, { originalSnapshot: replacedSnapshot, newSnapshots });
     updateSplitQueueButton();
 
     undoStack.push({ type: "split", groupId, original: replacedSnapshot, newSnapshots });
@@ -2332,11 +2356,7 @@
       action.newSnapshots.forEach((snap) => mrAddQueue.add(snap.id));
     }
     action.newSnapshots.forEach((snap) => restoreEntryFromSnapshot(snap));
-    splitQueue.set(action.groupId, {
-      originalSnapshot: action.original,
-      newSnapshots: action.newSnapshots,
-      originalWasCouldNotComplete: action.original.mrTaskStatus === COULD_NOT_COMPLETE_STATUS_NAME,
-    });
+    splitQueue.set(action.groupId, { originalSnapshot: action.original, newSnapshots: action.newSnapshots });
     updateSplitQueueButton();
     updateMrAddQueueButton();
     updateStats();

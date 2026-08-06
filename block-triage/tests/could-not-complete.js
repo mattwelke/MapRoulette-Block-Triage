@@ -82,7 +82,7 @@ runTest("could-not-complete: a Too_Hard task is highlighted with its own categor
   await browser.close();
 });
 
-runTest("could-not-complete: splitting a Too_Hard area offers a per-piece checkbox; splitting a normal one doesn't", async () => {
+runTest("could-not-complete: splitting any area (not just Too_Hard) offers a per-piece Mark as Could Not Complete checkbox", async () => {
   const { browser, page } = await launch();
   await routeMrChallenge(page, CHALLENGE_ID, [
     makeMrTask(501, SQUARE_GEOMETRY, "Too_Hard"),
@@ -108,7 +108,8 @@ runTest("could-not-complete: splitting a Too_Hard area offers a per-piece checkb
   await page.waitForTimeout(500);
   await loadLiveChallenge(page, CHALLENGE_ID, "fake-test-key");
 
-  // Split the Created (normal) task first.
+  // Split the Created (normal) task first - the checkbox should still show
+  // even though this area was never Could Not Complete.
   const initialRows = await listRows(page);
   const normalRow = initialRows.find((r) => !r.statusDotClass.includes("could-not-complete"));
   assert(!!normalRow, "expected to find the non-could-not-complete row");
@@ -117,20 +118,19 @@ runTest("could-not-complete: splitting a Too_Hard area offers a per-piece checkb
   await page.waitForTimeout(200);
   await drawVerticalSplitLine(page);
 
-  // Both freshly-split pieces should be selectable and show no checkbox.
-  let checkedAnyNormalPiece = false;
+  let normalPieceCount = 0;
   for (const row of await listRows(page)) {
     await clickRow(page, row.id);
-    if (await page.$("[data-drop-split-piece]")) {
-      if (await page.$("[data-keep-could-not-complete]")) checkedAnyNormalPiece = true;
-    }
+    if (!(await page.$("[data-drop-split-piece]"))) continue;
+    normalPieceCount++;
+    assert(!!(await page.$("[data-keep-could-not-complete]")), "splitting a normal area should still offer the checkbox on each piece");
   }
-  assert(!checkedAnyNormalPiece, "splitting a normal (non could-not-complete) area should not offer the keep-checkbox");
+  assertEqual(normalPieceCount, 2, `expected 2 pieces from splitting the normal task, got ${normalPieceCount}`);
 
   await page.click("#undo-btn"); // back out the normal split, leaving just the two original tasks
   await page.waitForTimeout(300);
 
-  // Now split the actual Too_Hard task.
+  // Now split the actual Too_Hard task, same expectation.
   const rowsBeforeCncSplit = await listRows(page);
   const cncRow = rowsBeforeCncSplit.find((r) => r.statusDotClass.includes("could-not-complete"));
   assert(!!cncRow, "expected to find the could-not-complete row");
@@ -149,9 +149,43 @@ runTest("could-not-complete: splitting a Too_Hard area offers a per-piece checkb
     if (!isPendingSplitPiece) continue;
     pieceRowCount++;
     const checkbox = await page.$("[data-keep-could-not-complete]");
-    assert(!!checkbox, "each piece of a could-not-complete split should offer the keep-checkbox");
+    assert(!!checkbox, "each piece of a could-not-complete split should offer the checkbox");
   }
   assertEqual(pieceRowCount, 2, `expected exactly 2 pending-split pieces after splitting the could-not-complete task, got ${pieceRowCount}`);
+
+  assertNoPageErrors(page);
+  await browser.close();
+});
+
+runTest("could-not-complete: a linked, unstarted area can be marked directly without splitting", async () => {
+  const { browser, page } = await launch();
+  const mrState = await routeMrChallenge(page, CHALLENGE_ID, [makeMrTask(501, SQUARE_GEOMETRY, "Created")]);
+
+  await page.goto(liveUrl());
+  await page.waitForTimeout(500);
+  await loadLiveChallenge(page, CHALLENGE_ID, "fake-test-key");
+
+  const rows = await listRows(page);
+  await clickRow(page, rows[0].id);
+
+  assert(!!(await page.$("[data-split]")), "sanity: the popup should be open with the normal action set");
+  const markBtn = await page.$("[data-mark-could-not-complete]");
+  assert(!!markBtn, "a linked, non-could-not-complete area should offer the Mark as Could Not Complete button");
+  await markBtn.click();
+  await page.waitForTimeout(500);
+
+  assertEqual(
+    JSON.stringify(mrState.statusSetCalls),
+    JSON.stringify([{ taskId: "501", status: "6" }]),
+    `expected a direct status-set call, got: ${JSON.stringify(mrState.statusSetCalls)}`
+  );
+
+  const rowsAfter = await listRows(page);
+  assert(rowsAfter[0].statusDotClass.includes("could-not-complete"), "the area should be recolored could-not-complete immediately");
+
+  // Re-open the popup - the button should be gone now that it's already marked.
+  await clickRow(page, rows[0].id);
+  assert(!(await page.$("[data-mark-could-not-complete]")), "the button should no longer appear once the area is already marked");
 
   assertNoPageErrors(page);
   await browser.close();

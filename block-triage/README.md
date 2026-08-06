@@ -194,8 +194,12 @@ status MapRoulette's own API calls `Too_Hard`) is always shown in teal,
 overriding whatever the size-based category would otherwise be — a good
 signal that the task is worth splitting, e.g. because the Oakville address
 layer is missing unit numbers for part of it and a mapper might be able to
-complete a subset. See "Splitting" below for how this status carries
-through a split.
+complete a subset. A linked area not already in this state gets a **Mark
+as Could Not Complete** button in its popup (alongside "Per-area actions"
+below) to set it directly, without splitting - useful the first time you
+notice the problem, before you've decided whether/how to split it. See
+"Splitting" below for how this status carries through a split, including
+marking new pieces the same way.
 
 **Per-area actions** (in the popup, alongside Split): for a linked area
 (one with a MapRoulette task, loaded or already added), a button reading
@@ -265,21 +269,22 @@ things:
   further up the chain untouched, then keeps unwinding one step at a time
   back to the original area.
 
-Splitting an area that's currently **Could Not Complete** adds one more
-thing to each piece's popup: a **Keep as Could Not Complete** checkbox.
-Every new task created by a split starts out as a normal, unstarted task
-(MapRoulette's `Created` status) by default — check this on whichever
-piece(s) still have the same problem the original did (e.g. still missing
-unit numbers), and once the split queue is processed, that piece's newly
-created task gets a follow-up call setting it back to Could Not Complete;
-any pieces left unchecked stay `Created`, ready for a mapper to pick up.
-You can check as many pieces as apply, or none, and a further nested split
-resets the checkbox for its own new pieces (you decide again at that
-finer grain). If the follow-up status call fails after the task was
-already created, it's reported in the split queue's status line rather
-than silently retried, since re-running "Process split queue" wouldn't
-recreate that task, just leave it linked and unmarked — set its status
-manually on MapRoulette in that case.
+Every pending split piece's popup also offers a **Mark as Could Not
+Complete** checkbox - not just when the area being split was already in
+that state, since you might only notice the problem (e.g. missing unit
+numbers) once you're looking at a smaller piece. Every new task created
+by a split starts out as a normal, unstarted task (MapRoulette's `Created`
+status) by default — check this on whichever piece(s) need it, and once
+the split queue is processed, that piece's newly created task gets a
+follow-up call setting it to Could Not Complete; any pieces left unchecked
+stay `Created`, ready for a mapper to pick up. You can check as many
+pieces as apply, or none, and a further nested split resets the checkbox
+for its own new pieces (you decide again at that finer grain). If the
+follow-up status call fails after the task was already created, it's
+reported in the split queue's status line rather than silently retried,
+since re-running "Process split queue" wouldn't recreate that task, just
+leave it linked and unmarked — set its status manually on MapRoulette in
+that case.
 
 ### Drawing new areas
 
