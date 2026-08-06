@@ -157,7 +157,7 @@ runTest("could-not-complete: splitting any area (not just Too_Hard) offers a per
   await browser.close();
 });
 
-runTest("could-not-complete: a linked, unstarted area can be marked directly without splitting", async () => {
+runTest("could-not-complete: Mark as Could Not Complete queues the change instead of applying it right away", async () => {
   const { browser, page } = await launch();
   const mrState = await routeMrChallenge(page, CHALLENGE_ID, [makeMrTask(501, SQUARE_GEOMETRY, "Created")]);
 
@@ -172,16 +172,51 @@ runTest("could-not-complete: a linked, unstarted area can be marked directly wit
   const markBtn = await page.$("[data-mark-could-not-complete]");
   assert(!!markBtn, "a linked, non-could-not-complete area should offer the Mark as Could Not Complete button");
   await markBtn.click();
+  await page.waitForTimeout(200);
+
+  assertEqual(mrState.statusSetCalls.length, 0, "queueing the mark should not call the API yet");
+  assertEqual(
+    await page.$eval("#mr-could-not-complete-queue-btn", (el) => el.textContent),
+    "Process could-not-complete queue (1)",
+    "the queue button should reflect the pending mark"
+  );
+  const rowsStillQueued = await listRows(page);
+  assert(!rowsStillQueued[0].statusDotClass.includes("could-not-complete"), "the area shouldn't recolor until the queue is actually processed");
+
+  // Re-open and toggle it back off - fully reversible while still pending.
+  await clickRow(page, rows[0].id);
+  assertEqual(
+    await page.$eval("[data-mark-could-not-complete]", (el) => el.textContent),
+    "Cancel pending mark",
+    "the button should reflect the pending state"
+  );
+  await page.click("[data-mark-could-not-complete]");
+  await page.waitForTimeout(200);
+  assertEqual(
+    await page.$eval("#mr-could-not-complete-queue-btn", (el) => el.textContent),
+    "Process could-not-complete queue (0)",
+    "cancelling should empty the queue again"
+  );
+
+  // Queue it again and actually process it this time.
+  await clickRow(page, rows[0].id);
+  await page.click("[data-mark-could-not-complete]");
+  await page.waitForTimeout(200);
+  await page.click("#mr-could-not-complete-queue-btn");
   await page.waitForTimeout(500);
 
   assertEqual(
     JSON.stringify(mrState.statusSetCalls),
     JSON.stringify([{ taskId: "501", status: "6" }]),
-    `expected a direct status-set call, got: ${JSON.stringify(mrState.statusSetCalls)}`
+    `expected exactly one status-set call after processing, got: ${JSON.stringify(mrState.statusSetCalls)}`
   );
-
   const rowsAfter = await listRows(page);
-  assert(rowsAfter[0].statusDotClass.includes("could-not-complete"), "the area should be recolored could-not-complete immediately");
+  assert(rowsAfter[0].statusDotClass.includes("could-not-complete"), "the area should be recolored once the queue is processed");
+  assertEqual(
+    await page.$eval("#mr-could-not-complete-queue-btn", (el) => el.textContent),
+    "Process could-not-complete queue (0)",
+    "the queue should be empty after processing"
+  );
 
   // Re-open the popup - the button should be gone now that it's already marked.
   await clickRow(page, rows[0].id);

@@ -197,9 +197,11 @@ layer is missing unit numbers for part of it and a mapper might be able to
 complete a subset. A linked area not already in this state gets a **Mark
 as Could Not Complete** button in its popup (alongside "Per-area actions"
 below) to set it directly, without splitting - useful the first time you
-notice the problem, before you've decided whether/how to split it. See
-"Splitting" below for how this status carries through a split, including
-marking new pieces the same way.
+notice the problem, before you've decided whether/how to split it. Like
+every other action here that changes something on MapRoulette, this
+queues the change rather than applying it right away - see "Per-area
+actions" below. See "Splitting" below for how this status carries through
+a split, including marking new pieces the same way.
 
 **Per-area actions** (in the popup, alongside Split): for a linked area
 (one with a MapRoulette task, loaded or already added), a button reading
@@ -213,10 +215,10 @@ Both directions work as queues rather than immediate actions, for the same
 reason: MapRoulette's task endpoints can be slow, and doing a whole batch
 one popup at a time, waiting on each request, isn't a great way to work.
 **Process all pending N** (near the top of the MapRoulette panel) runs
-every queue below - add, delete, boundary-edit, split, replace, combine -
-one after another in a single click, so you don't have to hunt down each
-queue's own button; processing starts immediately, with no confirmation
-prompts along the way.
+every queue below - add, delete, could-not-complete, boundary-edit,
+split, replace, combine - one after another in a single click, so you
+don't have to hunt down each queue's own button; processing starts
+immediately, with no confirmation prompts along the way.
 
 - **Adding**: every new, unlinked area (drawn, split, or combined) is
   automatically queued to be added — it shows a green dashed outline on the
@@ -229,6 +231,12 @@ prompts along the way.
   nothing is deleted until you process that queue. **Process delete queue
   N** starts right away and deletes them several at a time so as not to
   hammer the API without limit.
+- **Marking Could Not Complete**: clicking **Mark as Could Not Complete**
+  (or **Cancel pending mark** to undo it, as long as it's still only
+  queued) doesn't change anything on MapRoulette right away either — it
+  queues the status change (teal dashed outline) until you click **Process
+  could-not-complete queue N**, which sets each one's status directly, no
+  create/delete involved.
 
 Either way, whatever succeeds disappears from (or appears in) the map, the
 list, and the stats immediately. Every MapRoulette request is itself

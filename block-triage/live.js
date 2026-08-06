@@ -223,6 +223,12 @@
   // list of orphaned task ids to keep retrying independent of any area.
   /** @type {Set<number>} */
   let mrOrphanedDeleteQueue = new Set();
+  // Entry ids queued to have their MapRoulette task set to Could Not
+  // Complete (Too_Hard) - see the "Mark as Could Not Complete" popup
+  // button and processMrCouldNotCompleteQueue. Only ever entries with an
+  // existing mrTaskId - there's nothing to mark until a task exists.
+  /** @type {Set<string>} */
+  let mrCouldNotCompleteQueue = new Set();
   let mrQuickQueueDeleteMode = localStorage.getItem("block-triage:mrQuickQueueDeleteMode") === "true";
 
   // Caps how many MapRoulette API requests may be in flight at once, across
@@ -573,6 +579,8 @@
   const mrCombineQueueStatusEl = document.getElementById("mr-combine-queue-status");
   const mrOrphanedDeleteQueueBtn = document.getElementById("mr-orphaned-delete-queue-btn");
   const mrOrphanedDeleteQueueStatusEl = document.getElementById("mr-orphaned-delete-queue-status");
+  const mrCouldNotCompleteQueueBtn = document.getElementById("mr-could-not-complete-queue-btn");
+  const mrCouldNotCompleteQueueStatusEl = document.getElementById("mr-could-not-complete-queue-status");
   const mrProcessAllBtn = document.getElementById("mr-process-all-btn");
   const mrProcessAllStatusEl = document.getElementById("mr-process-all-status");
   const mrQuickQueueCheckbox = document.getElementById("mr-quick-queue-checkbox");
@@ -596,6 +604,7 @@
   mrReplaceQueueBtn.addEventListener("click", processReplaceQueue);
   mrCombineQueueBtn.addEventListener("click", processCombineQueue);
   mrOrphanedDeleteQueueBtn.addEventListener("click", processOrphanedDeleteQueue);
+  mrCouldNotCompleteQueueBtn.addEventListener("click", processMrCouldNotCompleteQueue);
   mrProcessAllBtn.addEventListener("click", processAllQueues);
 
   mrApiKeyInput.addEventListener("change", () => {
@@ -841,9 +850,10 @@
     updateProcessAllButton();
   }
 
-  // Reflects the combined size of every queue - add/delete/edit/split - so
-  // "Process all pending" can be clicked once instead of hunting down each
-  // queue's own button individually.
+  // Reflects the combined size of every queue - add/delete/edit/split/
+  // replace/combine/orphaned-deletes/could-not-complete - so "Process all
+  // pending" can be clicked once instead of hunting down each queue's own
+  // button individually.
   function updateProcessAllButton() {
     const total =
       mrDeleteQueue.size +
@@ -852,7 +862,8 @@
       splitQueue.size +
       replaceQueue.size +
       combineQueue.size +
-      mrOrphanedDeleteQueue.size;
+      mrOrphanedDeleteQueue.size +
+      mrCouldNotCompleteQueue.size;
     mrProcessAllBtn.textContent = `Process all pending (${total})`;
     mrProcessAllBtn.disabled = total === 0;
   }
@@ -872,6 +883,7 @@
     mrProcessAllStatusEl.textContent = "Processing every queue below…";
     await processMrAddQueue();
     await processMrDeleteQueue();
+    await processMrCouldNotCompleteQueue();
     await processMrEditQueue();
     await processSplitQueue();
     await processReplaceQueue();
@@ -1008,6 +1020,65 @@
         ? `Done — added ${added} task${added === 1 ? "" : "s"}.`
         : `Done — added ${added} of ${done}; ${failed} failed and ${failed === 1 ? "is" : "are"} still queued to retry next time.`;
     updateMrAddQueueButton();
+  }
+
+  function updateMrCouldNotCompleteQueueButton() {
+    mrCouldNotCompleteQueueBtn.textContent = `Process could-not-complete queue (${mrCouldNotCompleteQueue.size})`;
+    mrCouldNotCompleteQueueBtn.disabled = mrCouldNotCompleteQueue.size === 0;
+    updateProcessAllButton();
+  }
+
+  // Sets every queued area's MapRoulette task to Could Not Complete
+  // (Too_Hard), several at a time - a plain in-place status call, no
+  // create/delete involved (unlike most other queues).
+  async function processMrCouldNotCompleteQueue() {
+    const ids = Array.from(mrCouldNotCompleteQueue);
+    if (ids.length === 0) return;
+
+    mrCouldNotCompleteQueueBtn.disabled = true;
+    let done = 0;
+    let failed = 0;
+    let skippedLocked = 0;
+    await runConcurrently(ids, async (id) => {
+      mrCouldNotCompleteQueue.delete(id);
+      const entry = entries.get(id);
+      if (!entry || !entry.mrTaskId || entry.mrTaskStatus === COULD_NOT_COMPLETE_STATUS_NAME) {
+        done++;
+        return; // already gone, unlinked, or already marked by some other means in the meantime
+      }
+
+      const blockReason = mrBlockReason(entry);
+      if (blockReason) {
+        done++;
+        skippedLocked++;
+        mrCouldNotCompleteQueueStatusEl.textContent = `Skipped task ${entry.mrTaskId} (${done} of ${ids.length}): ${blockReason}.`;
+        entry.layer.setStyle(styleFor(entry)); // drop the "queued" look, it's back to just linked
+        renderList();
+        return;
+      }
+
+      mrCouldNotCompleteQueueStatusEl.textContent = `Marking task ${entry.mrTaskId}… (${done} of ${ids.length} done so far)`;
+      try {
+        await mrSetTaskStatus(entry.mrTaskId, COULD_NOT_COMPLETE_STATUS_CODE);
+        entry.mrTaskStatus = COULD_NOT_COMPLETE_STATUS_NAME;
+        entry.layer.setStyle(styleFor(entry));
+      } catch (err) {
+        failed++;
+        mrCouldNotCompleteQueue.add(id); // retries here are already exhausted - stays queued for the next pass
+        entry.layer.setStyle(styleFor(entry));
+      }
+      done++;
+      renderList();
+    });
+    const marked = done - failed - skippedLocked;
+    const parts = [`marked ${marked} of ${done}`];
+    if (failed > 0) parts.push(`${failed} failed`);
+    if (skippedLocked > 0) parts.push(`${skippedLocked} skipped (now locked)`);
+    mrCouldNotCompleteQueueStatusEl.textContent =
+      failed === 0 && skippedLocked === 0
+        ? `Done — marked ${marked} task${marked === 1 ? "" : "s"} as Could Not Complete.`
+        : `Done — ${parts.join(", ")}; anything that failed is still queued to retry next time you process this queue.`;
+    updateMrCouldNotCompleteQueueButton();
   }
 
   function updateMrEditQueueButton() {
@@ -1519,6 +1590,9 @@
     mrOrphanedDeleteQueue = new Set();
     updateOrphanedDeleteQueueButton();
     mrOrphanedDeleteQueueStatusEl.textContent = "";
+    mrCouldNotCompleteQueue = new Set();
+    updateMrCouldNotCompleteQueueButton();
+    mrCouldNotCompleteQueueStatusEl.textContent = "";
     if (editState) cancelEditBoundary();
 
     parsed.features.forEach((feature, idx) => {
@@ -1610,6 +1684,9 @@
     }
     if (mrEditQueue.has(entry.id)) {
       return { color: "#1565c0", weight: 4, dashArray: "2 4", fillColor: color, fillOpacity: 0.35 };
+    }
+    if (mrCouldNotCompleteQueue.has(entry.id)) {
+      return { color: COLORS["could-not-complete"], weight: 4, dashArray: "2 4", fillColor: color, fillOpacity: 0.35 };
     }
     const isSelected = entry.id === selectedId;
     return {
@@ -1887,25 +1964,28 @@
 
     const markCouldNotCompleteBtn = div.querySelector("[data-mark-could-not-complete]");
     if (markCouldNotCompleteBtn) {
-      markCouldNotCompleteBtn.addEventListener("click", async () => {
-        markCouldNotCompleteBtn.disabled = true;
-        mrBtn.disabled = true;
-        mrStatusInline.textContent = "Marking as Could Not Complete…";
-        try {
-          await mrSetTaskStatus(entry.mrTaskId, COULD_NOT_COMPLETE_STATUS_CODE);
-          entry.mrTaskStatus = COULD_NOT_COMPLETE_STATUS_NAME;
-          entry.layer.setStyle(styleFor(entry));
-          mrStatusInline.textContent = "Marked as Could Not Complete.";
-          renderList();
-          markCouldNotCompleteBtn.remove(); // no longer relevant - already marked now
-        } catch (err) {
-          mrStatusInline.textContent = "Failed: " + err.message;
-        } finally {
-          if (entries.has(entry.id)) {
-            mrBtn.disabled = false;
-            markCouldNotCompleteBtn.disabled = false;
-          }
+      const updateMarkButton = () => {
+        markCouldNotCompleteBtn.textContent = mrCouldNotCompleteQueue.has(entry.id)
+          ? "Cancel pending mark"
+          : "Mark as Could Not Complete";
+      };
+      updateMarkButton();
+      markCouldNotCompleteBtn.addEventListener("click", () => {
+        // Queueing/dequeueing is fully reversible (nothing's changed on
+        // MapRoulette yet), same as the delete/add queues above - "Process
+        // could-not-complete queue" in the sidebar is what actually applies it.
+        if (mrCouldNotCompleteQueue.has(entry.id)) {
+          mrCouldNotCompleteQueue.delete(entry.id);
+          mrStatusInline.textContent = "Removed from the could-not-complete queue.";
+        } else {
+          mrCouldNotCompleteQueue.add(entry.id);
+          mrStatusInline.textContent =
+            'Queued to be marked Could Not Complete — use "Process could-not-complete queue" in the sidebar to apply it.';
         }
+        entry.layer.setStyle(styleFor(entry));
+        updateMarkButton();
+        updateMrCouldNotCompleteQueueButton();
+        renderList();
       });
     }
 
