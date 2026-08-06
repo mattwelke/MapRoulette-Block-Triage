@@ -166,6 +166,10 @@
   const MR_API_BASE = "https://maproulette.org/api/v2";
   let mrApiKey = localStorage.getItem("block-triage:mrApiKey") || "";
   let mrChallengeId = localStorage.getItem("block-triage:mrChallengeId") || "";
+  // Not persisted across page loads - a challenge has to be re-loaded every
+  // session anyway (see loadChallengeFromMapRoulette), so there's nothing
+  // meaningful to remember "collapsed" from until that happens again.
+  let mrSetupCollapsed = false;
   /** @type {Set<string>} entry ids queued for MapRoulette task deletion, not yet actually deleted */
   let mrDeleteQueue = new Set();
   // Entry ids queued for MapRoulette task creation, not yet actually created.
@@ -231,65 +235,15 @@
   let mrCouldNotCompleteQueue = new Set();
   let mrQuickQueueDeleteMode = localStorage.getItem("block-triage:mrQuickQueueDeleteMode") === "true";
 
-  // Caps how many MapRoulette API requests may be in flight at once, across
-  // every queue - every queue's own processing loop runs its items
-  // concurrently (see runConcurrently below), and "Process all pending" can
-  // have several queues going at once on top of that, so this is what
-  // actually keeps the combined request rate bounded rather than letting
-  // everything hammer the API in parallel with no ceiling.
-  let mrMaxConcurrent = loadMrMaxConcurrent();
-  let mrActiveRequests = 0;
-  const mrSlotWaiters = [];
-
-  function loadMrMaxConcurrent() {
-    const stored = Number(localStorage.getItem("block-triage:mrMaxConcurrent"));
-    return Number.isInteger(stored) && stored > 0 ? stored : 3;
-  }
-  function saveMrMaxConcurrent() {
-    localStorage.setItem("block-triage:mrMaxConcurrent", String(mrMaxConcurrent));
-  }
-  // Waking a waiter and incrementing mrActiveRequests always happen together,
-  // synchronously, so a burst of wakeups (e.g. raising the limit) can't
-  // overshoot the cap while woken waiters are still resuming asynchronously.
-  function wakeMrWaitersIfRoom() {
-    while (mrActiveRequests < mrMaxConcurrent && mrSlotWaiters.length > 0) {
-      mrActiveRequests++;
-      mrSlotWaiters.shift()();
+  // Runs `worker` over every item in `items` one at a time, in order - every
+  // MapRoulette API request this app makes goes through here (directly or
+  // via one of the sequential loops below), so this is the one place that
+  // needs to stay honest about that: no Promise.all, no worker pool, just
+  // an await per item.
+  async function runSequentially(items, worker) {
+    for (const item of items) {
+      await worker(item);
     }
-  }
-  async function acquireMrSlot() {
-    if (mrActiveRequests < mrMaxConcurrent) {
-      mrActiveRequests++;
-      return;
-    }
-    await new Promise((resolve) => mrSlotWaiters.push(resolve));
-  }
-  function releaseMrSlot() {
-    mrActiveRequests--;
-    wakeMrWaitersIfRoom();
-  }
-
-  // Runs `worker` over every item in `items`, several at a time instead of
-  // one at a time - up to mrMaxConcurrent lanes, each pulling the next item
-  // off a shared index as soon as it finishes its current one. The actual
-  // HTTP concurrency is enforced independently by acquireMrSlot inside
-  // mrRequest regardless of how many lanes call into it at once, but pooling
-  // here too means a queue with far more items than mrMaxConcurrent doesn't
-  // kick off every item's bookkeeping (mutating shared counters, touching
-  // the DOM) in one synchronous burst - work stays spread out the same way
-  // the actual requests do.
-  async function runConcurrently(items, worker) {
-    let nextIndex = 0;
-    async function lane() {
-      while (nextIndex < items.length) {
-        const item = items[nextIndex++];
-        await worker(item);
-      }
-    }
-    const laneCount = Math.max(1, Math.min(mrMaxConcurrent, items.length));
-    await Promise.all(
-      Array.from({ length: laneCount }, () => lane())
-    );
   }
 
   // Background polling for "someone has this task locked" - MapRoulette's API
@@ -563,6 +517,8 @@
   const mrStatusEl = document.getElementById("mr-status");
   const mrLoadChallengeBtn = document.getElementById("mr-load-challenge-btn");
   const mrLoadStatusEl = document.getElementById("mr-load-status");
+  const mrSetupToggleBtn = document.getElementById("mr-setup-toggle-btn");
+  const mrSetupEl = document.getElementById("mr-setup");
   const mrLockPollStatusEl = document.getElementById("mr-lock-poll-status");
   const mrLiveBannerChallenge = document.getElementById("mr-live-banner-challenge");
   const mrQueueBtn = document.getElementById("mr-queue-btn");
@@ -584,11 +540,15 @@
   const mrProcessAllBtn = document.getElementById("mr-process-all-btn");
   const mrProcessAllStatusEl = document.getElementById("mr-process-all-status");
   const mrQuickQueueCheckbox = document.getElementById("mr-quick-queue-checkbox");
-  const mrMaxConcurrentInput = document.getElementById("mr-max-concurrent-input");
 
   mrApiKeyInput.value = mrApiKey;
   mrChallengeIdInput.value = mrChallengeId;
   updateMrBanner();
+  updateMrSetupCollapse();
+  mrSetupToggleBtn.addEventListener("click", () => {
+    mrSetupCollapsed = !mrSetupCollapsed;
+    updateMrSetupCollapse();
+  });
   updateMrQueueButton();
   updateMrAddQueueButton();
   updateMrEditQueueButton();
@@ -633,15 +593,6 @@
     mrQuickQueueDeleteMode = mrQuickQueueCheckbox.checked;
     localStorage.setItem("block-triage:mrQuickQueueDeleteMode", String(mrQuickQueueDeleteMode));
     appEl.classList.toggle("mr-quick-queue-active", mrQuickQueueDeleteMode);
-  });
-
-  mrMaxConcurrentInput.value = mrMaxConcurrent;
-  mrMaxConcurrentInput.addEventListener("change", () => {
-    const n = Math.floor(Number(mrMaxConcurrentInput.value));
-    mrMaxConcurrent = Number.isInteger(n) && n > 0 ? n : 3;
-    mrMaxConcurrentInput.value = mrMaxConcurrent;
-    saveMrMaxConcurrent();
-    wakeMrWaitersIfRoom(); // a waiter blocked under the old, lower cap may now fit
   });
 
   const sortOrderLabelEl = document.getElementById("sort-order-label");
@@ -844,6 +795,11 @@
     mrLiveBannerChallenge.textContent = mrChallengeId || "(no challenge ID set)";
   }
 
+  function updateMrSetupCollapse() {
+    mrSetupEl.hidden = mrSetupCollapsed;
+    mrSetupToggleBtn.textContent = mrSetupCollapsed ? "Show setup" : "Hide setup";
+  }
+
   function updateMrQueueButton() {
     mrQueueBtn.textContent = `Process delete queue (${mrDeleteQueue.size})`;
     mrQueueBtn.disabled = mrDeleteQueue.size === 0;
@@ -869,15 +825,12 @@
   }
 
   // Runs every queue's own processing function in turn - each starts right
-  // away with no confirm dialog, processing its own items concurrently
-  // internally (see runConcurrently), so this is mostly a convenience that
-  // saves clicking each queue's button separately. Queue
-  // *types* still run one after another rather than overlapping each other:
-  // an entry could in principle be referenced by more than one queue at once
+  // away with no confirm dialog, so this is mostly a convenience that saves
+  // clicking each queue's button separately. Every request this app makes,
+  // in every queue, runs strictly one at a time (see runSequentially) - an
+  // entry could in principle be referenced by more than one queue at once
   // (e.g. queued for boundary-edit and also picked up by a bulk quick-delete
-  // click), and overlapping two queues that might touch the same entry's
-  // remote task risks a race that a single global request semaphore alone
-  // wouldn't prevent.
+  // click), and this keeps queue *types* from overlapping each other too.
   async function processAllQueues() {
     mrProcessAllBtn.disabled = true;
     mrProcessAllStatusEl.textContent = "Processing every queue below…";
@@ -936,7 +889,7 @@
     let done = 0;
     let failed = 0;
     let skippedLocked = 0;
-    await runConcurrently(ids, async (id) => {
+    await runSequentially(ids, async (id) => {
       mrDeleteQueue.delete(id);
       const entry = entries.get(id);
       if (!entry || !entry.mrTaskId) {
@@ -986,7 +939,7 @@
   }
 
   // Creates every still-queued, still-unlinked area as a new MapRoulette
-  // task, several at a time (see runConcurrently).
+  // task, one at a time (see runSequentially).
   async function processMrAddQueue() {
     const ids = Array.from(mrAddQueue);
     if (ids.length === 0) return;
@@ -994,7 +947,7 @@
     mrAddQueueBtn.disabled = true;
     let done = 0;
     let failed = 0;
-    await runConcurrently(ids, async (id) => {
+    await runSequentially(ids, async (id) => {
       mrAddQueue.delete(id);
       const entry = entries.get(id);
       if (!entry || entry.mrTaskId) {
@@ -1029,7 +982,7 @@
   }
 
   // Sets every queued area's MapRoulette task to Could Not Complete
-  // (Too_Hard), several at a time - a plain in-place status call, no
+  // (Too_Hard), one at a time - a plain in-place status call, no
   // create/delete involved (unlike most other queues).
   async function processMrCouldNotCompleteQueue() {
     const ids = Array.from(mrCouldNotCompleteQueue);
@@ -1039,7 +992,7 @@
     let done = 0;
     let failed = 0;
     let skippedLocked = 0;
-    await runConcurrently(ids, async (id) => {
+    await runSequentially(ids, async (id) => {
       mrCouldNotCompleteQueue.delete(id);
       const entry = entries.get(id);
       if (!entry || !entry.mrTaskId || entry.mrTaskStatus === COULD_NOT_COMPLETE_STATUS_NAME) {
@@ -1090,8 +1043,8 @@
   // Applies every queued boundary edit to MapRoulette: since there's no
   // in-place geometry update used here, this deletes the old task and
   // creates a fresh one with the edited shape - the same mechanic doSplit
-  // already uses for a linked area, just batched (several at a time, see
-  // runConcurrently) instead of happening immediately.
+  // already uses for a linked area, just batched (one at a time, see
+  // runSequentially) instead of happening immediately.
   async function processMrEditQueue() {
     const ids = Array.from(mrEditQueue);
     if (ids.length === 0) return;
@@ -1108,7 +1061,7 @@
     let done = 0;
     let failed = 0;
     let skippedLocked = 0;
-    await runConcurrently(ids, async (id) => {
+    await runSequentially(ids, async (id) => {
       mrEditQueue.delete(id);
       const entry = entries.get(id);
       if (!entry || !entry.mrTaskId) {
@@ -1212,22 +1165,17 @@
   // exhausted, at which point it's their job to decide whether to re-queue.
   async function mrRequest(path, options) {
     if (!mrApiKey) throw new Error("Set your MapRoulette API key first.");
-    await acquireMrSlot();
-    try {
-      for (let attempt = 1; attempt <= MR_MAX_ATTEMPTS; attempt++) {
-        try {
-          return await mrRequestOnce(path, options);
-        } catch (err) {
-          // A thrown error with no .mrRetryable is a network-level failure
-          // (offline, DNS, CORS) rather than a real response - also worth
-          // retrying, so it defaults to retryable.
-          const retryable = err.mrRetryable !== false;
-          if (attempt === MR_MAX_ATTEMPTS || !retryable) throw err;
-          await sleep(MR_RETRY_BASE_DELAY_MS * attempt);
-        }
+    for (let attempt = 1; attempt <= MR_MAX_ATTEMPTS; attempt++) {
+      try {
+        return await mrRequestOnce(path, options);
+      } catch (err) {
+        // A thrown error with no .mrRetryable is a network-level failure
+        // (offline, DNS, CORS) rather than a real response - also worth
+        // retrying, so it defaults to retryable.
+        const retryable = err.mrRetryable !== false;
+        if (attempt === MR_MAX_ATTEMPTS || !retryable) throw err;
+        await sleep(MR_RETRY_BASE_DELAY_MS * attempt);
       }
-    } finally {
-      releaseMrSlot();
     }
   }
 
@@ -1347,6 +1295,10 @@
       kickMrLockPoll();
       mrLoadStatusEl.textContent = `Loaded ${parsed.features.length} task area${parsed.features.length === 1 ? "" : "s"} from challenge ${mrChallengeId}.`;
       mrLoadStatusEl.className = "mr-success";
+      // Setup's done - collapse it now to give the feature list/map more
+      // room, the same way editing an already-loaded challenge would want.
+      mrSetupCollapsed = true;
+      updateMrSetupCollapse();
     } catch (err) {
       mrLoadStatusEl.textContent = "Failed to load challenge: " + err.message;
       mrLoadStatusEl.className = "mr-error";
@@ -2336,7 +2288,7 @@
     // reported separately from the done/N progress count instead of
     // re-queuing anything.
     const couldNotCompleteFailures = [];
-    await runConcurrently(groupIds, async (groupId) => {
+    await runSequentially(groupIds, async (groupId) => {
       const { originalSnapshot, newSnapshots } = splitQueue.get(groupId);
       splitQueue.delete(groupId);
       newSnapshots.forEach((snap) => {
@@ -2377,39 +2329,36 @@
       updateOrphanedDeleteQueueButton();
       return;
     }
-    // Each piece's create is independent of the others, so they run
-    // concurrently too rather than one at a time.
-    await Promise.all(
-      newSnapshots.map(async (snap) => {
-        const liveEntry = entries.get(snap.id);
-        if (!liveEntry) return; // this piece was removed/changed locally before the request resolved
-        try {
-          const created = await mrCreateTask(liveEntry.feature);
-          snap.mrTaskId = created.id;
-          liveEntry.mrTaskId = created.id;
-          liveEntry.layer.setStyle(styleFor(liveEntry));
-          // Task creation always defaults to Created - a piece marked "Keep
-          // as Could Not Complete" needs a follow-up call to actually land
-          // on Too_Hard.
-          if (snap.pendingCouldNotComplete) {
-            try {
-              await mrSetTaskStatus(created.id, COULD_NOT_COMPLETE_STATUS_CODE);
-              liveEntry.mrTaskStatus = COULD_NOT_COMPLETE_STATUS_NAME;
-              liveEntry.pendingCouldNotComplete = false;
-              liveEntry.layer.setStyle(styleFor(liveEntry));
-            } catch (statusErr) {
-              couldNotCompleteFailures.push(created.id);
-            }
+    // Each piece's create happens one at a time, in order.
+    await runSequentially(newSnapshots, async (snap) => {
+      const liveEntry = entries.get(snap.id);
+      if (!liveEntry) return; // this piece was removed/changed locally before the request resolved
+      try {
+        const created = await mrCreateTask(liveEntry.feature);
+        snap.mrTaskId = created.id;
+        liveEntry.mrTaskId = created.id;
+        liveEntry.layer.setStyle(styleFor(liveEntry));
+        // Task creation always defaults to Created - a piece marked "Keep
+        // as Could Not Complete" needs a follow-up call to actually land
+        // on Too_Hard.
+        if (snap.pendingCouldNotComplete) {
+          try {
+            await mrSetTaskStatus(created.id, COULD_NOT_COMPLETE_STATUS_CODE);
+            liveEntry.mrTaskStatus = COULD_NOT_COMPLETE_STATUS_NAME;
+            liveEntry.pendingCouldNotComplete = false;
+            liveEntry.layer.setStyle(styleFor(liveEntry));
+          } catch (statusErr) {
+            couldNotCompleteFailures.push(created.id);
           }
-        } catch (err) {
-          // The old task is really gone regardless - queue this piece for
-          // adding instead of leaving it to a manual click.
-          mrAddQueue.add(liveEntry.id);
-          liveEntry.layer.setStyle(styleFor(liveEntry));
-          updateMrAddQueueButton();
         }
-      })
-    );
+      } catch (err) {
+        // The old task is really gone regardless - queue this piece for
+        // adding instead of leaving it to a manual click.
+        mrAddQueue.add(liveEntry.id);
+        liveEntry.layer.setStyle(styleFor(liveEntry));
+        updateMrAddQueueButton();
+      }
+    });
   }
 
   function undoSplit(action) {
@@ -2703,22 +2652,19 @@
   // constituents were linked (mrAddQueue handles creating the merged area's
   // task in that case instead - see doCombine/processCombineQueue).
   async function syncCombineToMapRoulette(originalSnapshots, newSnapshot) {
-    // Each constituent's delete is independent of the others, so they run
-    // concurrently rather than one at a time.
-    await Promise.all(
-      originalSnapshots.map(async (snap) => {
-        if (!snap.mrTaskId) return;
-        try {
-          await mrDeleteTask(snap.mrTaskId);
-        } catch (err) {
-          // mrRequest's own retries are already exhausted - nothing changed
-          // remotely for this one, just a deletion that still needs doing, so
-          // it's tracked on its own rather than alerted-and-forgotten.
-          mrOrphanedDeleteQueue.add(snap.mrTaskId);
-          updateOrphanedDeleteQueueButton();
-        }
-      })
-    );
+    // Each constituent's delete happens one at a time, in order.
+    await runSequentially(originalSnapshots, async (snap) => {
+      if (!snap.mrTaskId) return;
+      try {
+        await mrDeleteTask(snap.mrTaskId);
+      } catch (err) {
+        // mrRequest's own retries are already exhausted - nothing changed
+        // remotely for this one, just a deletion that still needs doing, so
+        // it's tracked on its own rather than alerted-and-forgotten.
+        mrOrphanedDeleteQueue.add(snap.mrTaskId);
+        updateOrphanedDeleteQueueButton();
+      }
+    });
     const liveEntry = entries.get(newSnapshot.id);
     if (!liveEntry || liveEntry.mrTaskId) return; // gone, or already linked some other way, before this ran
     try {
@@ -2735,8 +2681,8 @@
     }
   }
 
-  // Syncs every queued combine to MapRoulette, several groups at a time (see
-  // runConcurrently). Doesn't do a live lock recheck first (unlike the
+  // Syncs every queued combine to MapRoulette, one group at a time (see
+  // runSequentially). Doesn't do a live lock recheck first (unlike the
   // delete/edit queues) since the constituents are already gone locally by
   // this point - there's no entry left to refresh against; a task that
   // became locked in the meantime just fails the delete below and gets
@@ -2747,7 +2693,7 @@
 
     mrCombineQueueBtn.disabled = true;
     let done = 0;
-    await runConcurrently(groupIds, async (groupId) => {
+    await runSequentially(groupIds, async (groupId) => {
       const { originalSnapshots, newSnapshot } = combineQueue.get(groupId);
       combineQueue.delete(groupId);
       newSnapshot.pendingCombineGroup = null;
@@ -2786,7 +2732,7 @@
     mrOrphanedDeleteQueueBtn.disabled = true;
     let done = 0;
     let failed = 0;
-    await runConcurrently(ids, async (taskId) => {
+    await runSequentially(ids, async (taskId) => {
       mrOrphanedDeleteQueue.delete(taskId);
       mrOrphanedDeleteQueueStatusEl.textContent = `Deleting task ${taskId}… (${done} of ${ids.length} done so far)`;
       try {
@@ -2996,41 +2942,36 @@
   // locked in the meantime just fails the delete below and gets reported
   // like any other failure, same as the pre-queue split used to work.
   async function syncReplaceToMapRoulette(originalSnapshots, newSnapshots) {
-    // Each original's delete is independent of the others, so they run
-    // concurrently rather than one at a time.
-    await Promise.all(
-      originalSnapshots.map(async (snap) => {
-        if (!snap.mrTaskId) return;
-        try {
-          await mrDeleteTask(snap.mrTaskId);
-        } catch (err) {
-          // mrRequest's own retries are already exhausted - nothing changed
-          // remotely for this one, just a deletion that still needs doing, so
-          // it's tracked on its own rather than alerted-and-forgotten.
-          mrOrphanedDeleteQueue.add(snap.mrTaskId);
-          updateOrphanedDeleteQueueButton();
-        }
-      })
-    );
+    // Each original's delete happens one at a time, in order.
+    await runSequentially(originalSnapshots, async (snap) => {
+      if (!snap.mrTaskId) return;
+      try {
+        await mrDeleteTask(snap.mrTaskId);
+      } catch (err) {
+        // mrRequest's own retries are already exhausted - nothing changed
+        // remotely for this one, just a deletion that still needs doing, so
+        // it's tracked on its own rather than alerted-and-forgotten.
+        mrOrphanedDeleteQueue.add(snap.mrTaskId);
+        updateOrphanedDeleteQueueButton();
+      }
+    });
     // Same for each replacement's create.
-    await Promise.all(
-      newSnapshots.map(async (snap) => {
-        const liveEntry = entries.get(snap.id);
-        if (!liveEntry) return; // removed/changed locally before the request resolved
-        try {
-          const created = await mrCreateTask(liveEntry.feature);
-          snap.mrTaskId = created.id;
-          liveEntry.mrTaskId = created.id;
-          liveEntry.layer.setStyle(styleFor(liveEntry));
-        } catch (err) {
-          // The original(s) are already gone regardless - queue this
-          // replacement for adding instead of leaving it to a manual click.
-          mrAddQueue.add(liveEntry.id);
-          liveEntry.layer.setStyle(styleFor(liveEntry));
-          updateMrAddQueueButton();
-        }
-      })
-    );
+    await runSequentially(newSnapshots, async (snap) => {
+      const liveEntry = entries.get(snap.id);
+      if (!liveEntry) return; // removed/changed locally before the request resolved
+      try {
+        const created = await mrCreateTask(liveEntry.feature);
+        snap.mrTaskId = created.id;
+        liveEntry.mrTaskId = created.id;
+        liveEntry.layer.setStyle(styleFor(liveEntry));
+      } catch (err) {
+        // The original(s) are already gone regardless - queue this
+        // replacement for adding instead of leaving it to a manual click.
+        mrAddQueue.add(liveEntry.id);
+        liveEntry.layer.setStyle(styleFor(liveEntry));
+        updateMrAddQueueButton();
+      }
+    });
   }
 
   async function processReplaceQueue() {
@@ -3039,7 +2980,7 @@
 
     mrReplaceQueueBtn.disabled = true;
     let done = 0;
-    await runConcurrently(groupIds, async (groupId) => {
+    await runSequentially(groupIds, async (groupId) => {
       const { originalSnapshots, newSnapshots } = replaceQueue.get(groupId);
       replaceQueue.delete(groupId);
       newSnapshots.forEach((snap) => {
@@ -3530,9 +3471,4 @@
   // Test-only hook (see tests/mr-edit-boundary.js) - there's no
   // export/download path in this page to inspect resulting geometry otherwise.
   window.__blockTriageGetEntries = () => entries;
-
-  // Test-only hook (see tests/mr-max-concurrent.js) - the semaphore itself
-  // has no visible effect in the UI unless multiple requests actually
-  // overlap, which none of today's queues do on their own.
-  window.__blockTriageMrSlotTest = { acquireMrSlot, releaseMrSlot, getActive: () => mrActiveRequests };
 })();

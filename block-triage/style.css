@@ -309,6 +309,23 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
   margin: 0 0 calc(var(--space-scale) * 0.75rem);
 }
 
+#maproulette h2 {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+/* A small, secondary-looking variant of the regular button style - sits
+   inline in the (uppercase, small-caps) "MapRoulette" heading, so a full-size
+   pill button would look oversized next to it. */
+.mr-setup-toggle {
+  text-transform: none;
+  letter-spacing: normal;
+  font-size: 0.75rem;
+  padding: 0.15rem 0.5rem;
+}
+
 #stats {
   font-size: 0.85rem;
   line-height: 1.5;

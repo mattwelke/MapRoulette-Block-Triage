@@ -27,24 +27,31 @@ function square(lng, lat, size) {
   };
 }
 
-runTest("mr-parallel-queue: processing a queue actually runs requests concurrently, bounded by max-concurrent", async () => {
+runTest("mr-sequential-queue: processing a queue never has more than one MapRoulette request in flight at once", async () => {
   const { browser, page } = await launch();
   page.on("dialog", async (dialog) => await dialog.accept());
 
-  // 5 well-separated, unlocked, task-linked areas - more than the default
-  // max-concurrent (3), so the cap itself gets exercised.
+  // 5 well-separated, unlocked, task-linked areas - enough that overlapping
+  // requests would be obvious if they happened.
   const tasks = [];
   for (let i = 0; i < 5; i++) {
     tasks.push(makeMrTask(800001 + i, square(-79.9 + i * 0.02, 43.45, 0.001), "Created"));
   }
   await routeMrChallenge(page, CHALLENGE_ID, tasks);
 
-  // Every DELETE takes a deliberate 600ms to resolve, long enough to
-  // reliably observe several in flight at once rather than racing a real
-  // instant response.
+  // Every DELETE takes a deliberate 300ms to resolve and tracks how many are
+  // concurrently in flight - long enough to reliably catch an overlap if the
+  // app ever issues two at once, without depending on this app having any
+  // internal concurrency-tracking hook of its own (there's nothing left to
+  // hook into now that requests are just plain sequential loops).
+  let inFlight = 0;
+  let maxObservedInFlight = 0;
   await page.route(/https:\/\/maproulette\.org\/api\/v2\/task\/\d+$/, async (route) => {
     if (route.request().method() !== "DELETE") return route.continue();
-    await new Promise((r) => setTimeout(r, 600));
+    inFlight++;
+    maxObservedInFlight = Math.max(maxObservedInFlight, inFlight);
+    await new Promise((r) => setTimeout(r, 300));
+    inFlight--;
     await route.fulfill({ status: 200, contentType: "application/json", body: "null" });
   });
 
@@ -72,19 +79,9 @@ runTest("mr-parallel-queue: processing a queue actually runs requests concurrent
   );
 
   await page.click("#mr-queue-btn");
-  await page.waitForTimeout(250); // well inside the 600ms delay window, after requests have had time to start
+  await page.waitForTimeout(2500); // let the whole batch finish (5 * 300ms sequential + overhead)
 
-  const activeDuringProcessing = await page.evaluate(() => window.__blockTriageMrSlotTest.getActive());
-  assert(
-    activeDuringProcessing > 1,
-    `expected more than 1 request in flight at once while processing (real concurrency), got active=${activeDuringProcessing}`
-  );
-  assert(
-    activeDuringProcessing <= 3,
-    `expected active requests to stay within the default max-concurrent of 3, got active=${activeDuringProcessing}`
-  );
-
-  await page.waitForTimeout(2000); // let the whole batch finish
+  assertEqual(maxObservedInFlight, 1, `expected at most 1 request in flight at any point, observed a peak of ${maxObservedInFlight}`);
   assertEqual(
     await page.$eval("#mr-queue-btn", (el) => el.textContent),
     "Process delete queue (0)",

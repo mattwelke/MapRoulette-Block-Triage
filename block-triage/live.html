@@ -48,24 +48,29 @@
         <div id="stats"></div>
 
         <div id="maproulette">
-          <h2>MapRoulette</h2>
-          <label>
-            API key
-            <span class="mr-key-row">
-              <input type="password" id="mr-api-key-input" autocomplete="off" placeholder="paste your apiKey">
-              <button id="mr-api-key-clear-btn" title="Forget the stored API key">Clear</button>
-            </span>
-          </label>
-          <label>
-            Challenge ID
-            <input type="number" id="mr-challenge-id-input" placeholder="e.g. 55881">
-          </label>
-          <label title="Caps how many MapRoulette API requests may be in flight at once, across every queue.">
-            Max concurrent requests
-            <input type="number" id="mr-max-concurrent-input" value="3" min="1" step="1">
-          </label>
-          <button id="mr-test-btn">Test connection</button>
-          <div id="mr-status" class="muted"></div>
+          <h2>
+            MapRoulette
+            <button id="mr-setup-toggle-btn" type="button" class="mr-setup-toggle" title="Show/hide the API key and Challenge ID setup fields">Hide setup</button>
+          </h2>
+          <div id="mr-setup">
+            <label>
+              API key
+              <span class="mr-key-row">
+                <input type="password" id="mr-api-key-input" autocomplete="off" placeholder="paste your apiKey">
+                <button id="mr-api-key-clear-btn" title="Forget the stored API key">Clear</button>
+              </span>
+            </label>
+            <label>
+              Challenge ID
+              <input type="number" id="mr-challenge-id-input" placeholder="e.g. 55881">
+            </label>
+            <button id="mr-test-btn">Test connection</button>
+            <div id="mr-status" class="muted"></div>
+          </div>
+          <!-- Stays visible even with #mr-setup collapsed - reloading (or
+               switching to a different) challenge is still a normal thing to
+               do after initial setup, and mr-load-status doubles as the
+               "setup is done" confirmation once collapsed. -->
           <button id="mr-load-challenge-btn" title="Load every task in this challenge directly from MapRoulette">Load challenge from MapRoulette</button>
           <div id="mr-load-status" class="muted"></div>
           <div class="muted" id="mr-lock-poll-status" title="Background check for tasks someone currently has open on MapRoulette. Runs every ~60s (jittered).">Task lock checks: not yet run.</div>
@@ -76,7 +81,7 @@
           <div class="muted">
             New areas (drawn, split, or combined) are automatically queued
             to be added as MapRoulette tasks - nothing is created until you
-            process the queue below, several at a time. Use "Add now" on
+            process the queue below, one at a time. Use "Add now" on
             an area's popup to create it immediately instead.
           </div>
           <button id="mr-add-queue-btn" disabled>Process add queue (0)</button>
@@ -85,7 +90,7 @@
           <div class="muted">
             "Remove task from challenge" queues the delete instead of
             doing it right away — nothing is deleted until you process
-            the queue below, several at a time.
+            the queue below, one at a time.
           </div>
           <label id="mr-quick-queue-toggle" class="toggle-label" title="When on, clicking an area on the map (that's already linked to a MapRoulette task and isn't locked) queues or unqueues it for deletion instead of opening the review popup.">
             <input type="checkbox" id="mr-quick-queue-checkbox">
@@ -109,7 +114,7 @@
             piece" in its popup, at least one must remain) until you process
             the queue below, which syncs it to MapRoulette: deletes the old
             task (if it was task-linked) and creates a new one for every
-            piece still standing, several splits at a time.
+            piece still standing, one split at a time.
           </div>
           <button id="mr-split-queue-btn" disabled>Process split queue (0)</button>
           <div id="mr-split-queue-status" class="muted"></div>
@@ -119,7 +124,7 @@
             away - the replacement areas show a teal dashed outline until
             you process the queue below, which deletes any linked
             MapRoulette tasks for the areas you replaced and creates new
-            ones for the areas you drew instead, several groups at a time.
+            ones for the areas you drew instead, one group at a time.
           </div>
           <button id="mr-replace-queue-btn" disabled>Process replace queue (0)</button>
           <div id="mr-replace-queue-status" class="muted"></div>

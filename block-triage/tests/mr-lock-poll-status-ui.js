@@ -85,6 +85,9 @@ runTest("mr-lock-poll-status-ui: the panel reflects poll state, and never shows 
 
   // Clearing the Challenge ID makes lock polling ineligible again - this
   // should show up immediately, not leave a stale "Last checked" result.
+  // The setup fields auto-collapse once a challenge loads, so re-expand
+  // them first to reach the input, same as a real user would.
+  await page.click("#mr-setup-toggle-btn");
   await page.fill("#mr-challenge-id-input", "");
   await page.$eval("#mr-challenge-id-input", (el) => el.dispatchEvent(new Event("change")));
   await page.waitForTimeout(300);
