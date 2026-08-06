@@ -101,9 +101,11 @@ async function routeMrChallenge(page, challengeId, tasks) {
   const state = {
     createdTasks: [],
     deletedTaskIds: [],
+    statusSetCalls: [], // [{ taskId, status }, ...] from PUT /task/{id}/{status}
     nextCreatedId: 9000,
     nextDeleteStatus: null, // one-shot: fails the very next DELETE, then resets to null (so a retry after it succeeds)
     deleteAlwaysFailsStatus: null, // persistent: every DELETE fails with this status, for exercising genuine retry exhaustion
+    statusSetAlwaysFailsStatus: null, // persistent: every PUT /task/{id}/{status} fails with this status
   };
 
   await page.route(`https://maproulette.org/api/v2/challenge/${challengeId}/tasks**`, async (route) => {
@@ -147,6 +149,20 @@ async function routeMrChallenge(page, challengeId, tasks) {
       return;
     }
     await route.fulfill({ status: 200, contentType: "application/json", body: "null" });
+  });
+  await page.route(/https:\/\/maproulette\.org\/api\/v2\/task\/\d+\/\d+$/, async (route) => {
+    if (route.request().method() !== "PUT") return route.continue();
+    const m = route.request().url().match(/\/task\/(\d+)\/(\d+)$/);
+    state.statusSetCalls.push({ taskId: m ? m[1] : null, status: m ? m[2] : null });
+    if (state.statusSetAlwaysFailsStatus) {
+      await route.fulfill({
+        status: state.statusSetAlwaysFailsStatus,
+        contentType: "application/json",
+        body: JSON.stringify({ status: "Error" }),
+      });
+      return;
+    }
+    await route.fulfill({ status: 204, contentType: "application/json", body: "" });
   });
 
   return state;

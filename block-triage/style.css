@@ -60,6 +60,7 @@
   --oversized: var(--md-ref-palette-red50, #e64a19);
   --undersized: var(--md-ref-palette-yellow80, #fbc02d);
   --overlap: var(--md-ref-palette-pink50, #e91e63);
+  --could-not-complete: var(--md-ref-palette-cyan60, #009ebb);
   --combine-action: var(--md-ref-palette-purple40, #9c27b0);
   --replace-action: var(--md-ref-palette-cyan50, #00838f);
 
@@ -448,6 +449,7 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 .swatch.locked { background: var(--locked); }
 .swatch.active-lock { background: var(--active-lock); }
 .swatch.overlap { background: var(--overlap); }
+.swatch.could-not-complete { background: var(--could-not-complete); }
 
 kbd {
   background: var(--surface-container-high);
@@ -601,6 +603,7 @@ kbd {
 .feature-row .status-dot.normal { background: var(--normal); }
 .feature-row .status-dot.oversized { background: var(--oversized); }
 .feature-row .status-dot.undersized { background: var(--undersized); }
+.feature-row .status-dot.could-not-complete { background: var(--could-not-complete); }
 
 .feature-row .meta {
   flex: 1;

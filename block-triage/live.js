@@ -22,6 +22,7 @@
     undersized: "#fbc02d",
     locked: "#9e9e9e",
     "active-lock": "#6d4c41",
+    "could-not-complete": "#009ebb",
   };
 
   // Tasks already resolved on MapRoulette - read straight from the loaded
@@ -150,6 +151,17 @@
     5: "Already_Fixed",
     6: "Too_Hard",
   };
+
+  // MapRoulette's "Too Hard" status (the button reads "Can't Complete" in
+  // MapRoulette's own UI) is used here for tasks that couldn't be finished
+  // because the Oakville address layer is missing unit numbers for part of
+  // the area - a good split candidate, since a mapper might be able to
+  // complete a subset of it. Highlighted as its own category (see
+  // category()) and specially handled when splitting (see queueSplit/
+  // syncSplitToMapRoulette): the user picks which resulting piece(s) should
+  // stay Too_Hard, and the rest come out as normal newly-created tasks.
+  const COULD_NOT_COMPLETE_STATUS_NAME = "Too_Hard";
+  const COULD_NOT_COMPLETE_STATUS_CODE = 6;
 
   const MR_API_BASE = "https://maproulette.org/api/v2";
   let mrApiKey = localStorage.getItem("block-triage:mrApiKey") || "";
@@ -1179,6 +1191,14 @@
     return mrRequest(`/task/${taskId}`, { method: "DELETE" });
   }
 
+  // Used to set a freshly-created split piece's task straight to Too_Hard
+  // (see syncSplitToMapRoulette) - task creation itself has no way to set an
+  // initial status other than the default Created, so this is a follow-up
+  // call, PUT /task/{id}/{statusCode}.
+  function mrSetTaskStatus(taskId, statusCode) {
+    return mrRequest(`/task/${taskId}/${statusCode}`, { method: "PUT" });
+  }
+
   const MR_TASKS_PAGE_SIZE = 500;
 
   async function mrFetchAllChallengeTasks(challengeId, onProgress) {
@@ -1541,6 +1561,13 @@
   function category(entry) {
     if (entry.mrLocked) return "locked";
     if (entry.mrActiveLockedBy != null) return "active-lock";
+    // Covers both a task that's already Too_Hard on MapRoulette, and a
+    // still-pending split piece the user has marked to become Too_Hard once
+    // synced (see the "Keep as Could Not Complete" checkbox in openPopup) -
+    // both read the same way visually until the piece is actually synced.
+    if (entry.mrTaskStatus === COULD_NOT_COMPLETE_STATUS_NAME || entry.pendingCouldNotComplete) {
+      return "could-not-complete";
+    }
     if (coloringMode === "addressCount") {
       if (entry.addressCount >= targetAddressCount + addressCountBand) return "oversized";
       if (entry.addressCount <= targetAddressCount - addressCountBand) return "undersized";
@@ -1592,7 +1619,7 @@
       // cleared here or a prior combine-selection dash pattern would stick.
       dashArray: null,
       fillColor: color,
-      fillOpacity: cat === "oversized" || cat === "undersized" ? 0.4 : 0.15,
+      fillOpacity: cat === "oversized" || cat === "undersized" || cat === "could-not-complete" ? 0.4 : 0.15,
     };
   }
 
@@ -1693,6 +1720,14 @@
           : ""
       }
       ${
+        splitPending && splitGroup && splitGroup.originalWasCouldNotComplete
+          ? `<label class="toggle-label" title="This area was Could Not Complete on MapRoulette because the address layer is missing unit numbers here. Check this on whichever resulting piece(s) still have that problem - the rest come out as normal new tasks.">
+              <input type="checkbox" data-keep-could-not-complete ${entry.pendingCouldNotComplete ? "checked" : ""}>
+              Keep as Could Not Complete
+            </label>`
+          : ""
+      }
+      ${
         replacePending
           ? `<div class="mr-locked-note">Queued for a pending replace — use Undo to reverse it, or process the replace queue to apply it.</div>`
           : ""
@@ -1746,6 +1781,22 @@
     const dropSplitPieceBtn = div.querySelector("[data-drop-split-piece]");
     if (dropSplitPieceBtn) {
       dropSplitPieceBtn.addEventListener("click", () => dropSplitPiece(entry));
+    }
+
+    const keepCouldNotCompleteCheckbox = div.querySelector("[data-keep-could-not-complete]");
+    if (keepCouldNotCompleteCheckbox) {
+      keepCouldNotCompleteCheckbox.addEventListener("change", () => {
+        entry.pendingCouldNotComplete = keepCouldNotCompleteCheckbox.checked;
+        // entry (in `entries`) and the matching snapshot living in the
+        // split group's newSnapshots are separate objects (see
+        // restoreEntryFromSnapshot) - processSplitQueue reads the group's
+        // snapshots, not `entries`, so both need the flag.
+        const group = splitQueue.get(entry.pendingSplitGroup);
+        const snap = group && group.newSnapshots.find((s) => s.id === entry.id);
+        if (snap) snap.pendingCouldNotComplete = keepCouldNotCompleteCheckbox.checked;
+        entry.layer.setStyle(styleFor(entry));
+        renderList();
+      });
     }
 
     const editBoundaryBtn = div.querySelector("[data-edit-boundary]");
@@ -1941,6 +1992,13 @@
         mrTaskStatus: null,
         mrLocked: false,
         mrActiveLockedBy: null,
+        // Whether this piece should be set to Too_Hard ("Could Not
+        // Complete") once its replacement task is created - see
+        // queueSplit's originalWasCouldNotComplete and the "Keep as Could
+        // Not Complete" checkbox in openPopup. Defaults unmarked even when
+        // splitting a Too_Hard area - the user picks which piece(s), if
+        // any, should stay Too_Hard.
+        pendingCouldNotComplete: false,
       };
     });
     return { originalSnapshot, newSnapshots };
@@ -2025,7 +2083,11 @@
     newSnapshots.forEach((snap) => restoreEntryFromSnapshot(snap));
     updateMrAddQueueButton();
 
-    splitQueue.set(groupId, { originalSnapshot: replacedSnapshot, newSnapshots });
+    splitQueue.set(groupId, {
+      originalSnapshot: replacedSnapshot,
+      newSnapshots,
+      originalWasCouldNotComplete: replacedSnapshot.mrTaskStatus === COULD_NOT_COMPLETE_STATUS_NAME,
+    });
     updateSplitQueueButton();
 
     undoStack.push({ type: "split", groupId, original: replacedSnapshot, newSnapshots });
@@ -2164,6 +2226,12 @@
 
     mrSplitQueueBtn.disabled = true;
     let done = 0;
+    // Pieces whose task was created fine but the follow-up "keep as Could
+    // Not Complete" status call failed - not a sync failure (the task
+    // exists and is usable, just left at the default Created status), so
+    // reported separately from the done/N progress count instead of
+    // re-queuing anything.
+    const couldNotCompleteFailures = [];
     await runConcurrently(groupIds, async (groupId) => {
       const { originalSnapshot, newSnapshots } = splitQueue.get(groupId);
       splitQueue.delete(groupId);
@@ -2176,17 +2244,24 @@
         }
       });
       if (originalSnapshot.mrTaskId) {
-        await syncSplitToMapRoulette(originalSnapshot, newSnapshots);
+        await syncSplitToMapRoulette(originalSnapshot, newSnapshots, couldNotCompleteFailures);
       }
       done++;
       mrSplitQueueStatusEl.textContent = `Syncing splits… (${done} of ${groupIds.length} done so far)`;
       renderList();
     });
     mrSplitQueueStatusEl.textContent = `Done — synced ${done} split${done === 1 ? "" : "s"}.`;
+    if (couldNotCompleteFailures.length) {
+      mrSplitQueueStatusEl.textContent +=
+        ` ${couldNotCompleteFailures.length} piece${couldNotCompleteFailures.length === 1 ? "" : "s"} created fine but ` +
+        `couldn't be set to Could Not Complete (task ${couldNotCompleteFailures.join(", ")}) - set ${
+          couldNotCompleteFailures.length === 1 ? "it" : "them"
+        } manually on MapRoulette.`;
+    }
     updateSplitQueueButton();
   }
 
-  async function syncSplitToMapRoulette(originalSnapshot, newSnapshots) {
+  async function syncSplitToMapRoulette(originalSnapshot, newSnapshots, couldNotCompleteFailures) {
     try {
       await mrDeleteTask(originalSnapshot.mrTaskId);
     } catch (err) {
@@ -2209,6 +2284,19 @@
           snap.mrTaskId = created.id;
           liveEntry.mrTaskId = created.id;
           liveEntry.layer.setStyle(styleFor(liveEntry));
+          // Task creation always defaults to Created - a piece marked "Keep
+          // as Could Not Complete" needs a follow-up call to actually land
+          // on Too_Hard.
+          if (snap.pendingCouldNotComplete) {
+            try {
+              await mrSetTaskStatus(created.id, COULD_NOT_COMPLETE_STATUS_CODE);
+              liveEntry.mrTaskStatus = COULD_NOT_COMPLETE_STATUS_NAME;
+              liveEntry.pendingCouldNotComplete = false;
+              liveEntry.layer.setStyle(styleFor(liveEntry));
+            } catch (statusErr) {
+              couldNotCompleteFailures.push(created.id);
+            }
+          }
         } catch (err) {
           // The old task is really gone regardless - queue this piece for
           // adding instead of leaving it to a manual click.
@@ -2244,7 +2332,11 @@
       action.newSnapshots.forEach((snap) => mrAddQueue.add(snap.id));
     }
     action.newSnapshots.forEach((snap) => restoreEntryFromSnapshot(snap));
-    splitQueue.set(action.groupId, { originalSnapshot: action.original, newSnapshots: action.newSnapshots });
+    splitQueue.set(action.groupId, {
+      originalSnapshot: action.original,
+      newSnapshots: action.newSnapshots,
+      originalWasCouldNotComplete: action.original.mrTaskStatus === COULD_NOT_COMPLETE_STATUS_NAME,
+    });
     updateSplitQueueButton();
     updateMrAddQueueButton();
     updateStats();
