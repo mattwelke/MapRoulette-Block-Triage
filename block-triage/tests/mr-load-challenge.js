@@ -1,6 +1,7 @@
 const { launch, assertNoPageErrors, liveUrl, assert, assertEqual, runTest } = require("./support");
 
-function makeTask(id, status, lng, lat) {
+function makeTask(id, status, lng, lat, size) {
+  size = size || 0.0005;
   return {
     id,
     name: `task-${id}`,
@@ -18,9 +19,9 @@ function makeTask(id, status, lng, lat) {
             coordinates: [
               [
                 [lng, lat],
-                [lng + 0.0005, lat],
-                [lng + 0.0005, lat + 0.0005],
-                [lng, lat + 0.0005],
+                [lng + size, lat],
+                [lng + size, lat + size],
+                [lng, lat + size],
                 [lng, lat],
               ],
             ],
@@ -42,11 +43,16 @@ runTest("mr-load-challenge: pull a challenge straight from the API, no file uplo
   page.on("dialog", async (dialog) => await dialog.accept());
 
   const CHALLENGE_ID = 55881;
-  const TOTAL = 1203; // exercises pagination (500/page) and the status-code mapping
+  const TOTAL = 5001; // exercises pagination (5000/page) and the status-code mapping
   const allTasks = [];
   for (let i = 0; i < TOTAL; i++) {
     const status = i % 97 === 0 ? 5 : i % 53 === 0 ? 1 : 0; // sprinkle in Already_Fixed(5)/Fixed(1)
-    allTasks.push(makeTask(1000 + i, status, -79.7 + (i % 40) * 0.001, 43.45 + Math.floor(i / 40) * 0.001));
+    // Task 0 (locked) gets a deliberately tiny area so it always sorts first
+    // ("sorted by area, smallest first") and lands in the virtualized list's
+    // initially-rendered window below, regardless of how many other tasks
+    // (with the default, much larger size) it's competing with.
+    const size = i === 0 ? 0.00001 : 0.0005;
+    allTasks.push(makeTask(1000 + i, status, -79.7 + (i % 40) * 0.001, 43.45 + Math.floor(i / 40) * 0.001, size));
   }
 
   const requestedPages = [];
@@ -71,9 +77,9 @@ runTest("mr-load-challenge: pull a challenge straight from the API, no file uplo
   await page.waitForTimeout(200);
 
   await page.click("#mr-load-challenge-btn");
-  await page.waitForTimeout(4000);
+  await page.waitForTimeout(6000);
 
-  assertEqual(requestedPages.length, 3, `expected 3 pages of 500 to cover ${TOTAL} tasks, got: ${JSON.stringify(requestedPages)}`);
+  assertEqual(requestedPages.length, 2, `expected 2 pages of 5000 to cover ${TOTAL} tasks, got: ${JSON.stringify(requestedPages)}`);
   assert(
     (await page.$eval("#mr-load-status", (el) => el.textContent)).includes(`Loaded ${TOTAL}`),
     "load status should confirm the total loaded"

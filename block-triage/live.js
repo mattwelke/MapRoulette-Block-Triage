@@ -1234,7 +1234,7 @@
     return mrRequest(`/task/${taskId}/${statusCode}`, { method: "PUT" });
   }
 
-  const MR_TASKS_PAGE_SIZE = 500;
+  const MR_TASKS_PAGE_SIZE = 5000;
 
   async function mrFetchAllChallengeTasks(challengeId, onProgress) {
     const tasks = [];

@@ -136,7 +136,7 @@ challenge once its queue is processed.
   key (and your browser's ability to reach the API at all) works before
   you rely on it for anything real.
 - **Load challenge from MapRoulette** — pulls every task in the given
-  Challenge ID directly from the API (paging through 500 at a time under
+  Challenge ID directly from the API (paging through 5000 at a time under
   the hood). Each task's geometry becomes an area here, stamped with
   `mr_taskId` / `mr_challengeId` / `mr_taskStatus` properties. If you
   already have areas loaded, it confirms first, since it replaces what's
