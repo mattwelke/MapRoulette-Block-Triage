@@ -88,6 +88,9 @@ runTest("mr-load-challenge: pull a challenge straight from the API, no file uplo
   assert(lockedCount > 0, "expected some locked (Fixed/Already_Fixed) rows given the synthesized status mix");
 
   // Loading again with entries already present should ask for confirmation.
+  // The setup fields (including this button) auto-collapse once a challenge
+  // loads, so re-expand them first to reach it, same as a real user would.
+  await page.click("#mr-setup-toggle-btn");
   const dialogMessages = [];
   page.removeAllListeners("dialog");
   page.on("dialog", async (dialog) => {

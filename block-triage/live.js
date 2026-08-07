@@ -519,6 +519,7 @@
   const mrLoadStatusEl = document.getElementById("mr-load-status");
   const mrSetupToggleBtn = document.getElementById("mr-setup-toggle-btn");
   const mrSetupEl = document.getElementById("mr-setup");
+  const mrSetupSummaryEl = document.getElementById("mr-setup-summary");
   const mrLockPollStatusEl = document.getElementById("mr-lock-poll-status");
   const mrLiveBannerChallenge = document.getElementById("mr-live-banner-challenge");
   const mrQueueBtn = document.getElementById("mr-queue-btn");
@@ -797,7 +798,16 @@
 
   function updateMrSetupCollapse() {
     mrSetupEl.hidden = mrSetupCollapsed;
+    mrSetupSummaryEl.hidden = !mrSetupCollapsed;
     mrSetupToggleBtn.textContent = mrSetupCollapsed ? "Show setup" : "Hide setup";
+    if (mrSetupCollapsed) {
+      // mr-load-status (inside the now-hidden #mr-setup) already has a
+      // useful message once a challenge has been loaded - e.g. "Loaded 42
+      // task areas from challenge 55881." - reuse it here instead of
+      // burying that confirmation the moment setup collapses.
+      mrSetupSummaryEl.textContent =
+        mrLoadStatusEl.textContent || `Challenge ${mrChallengeId || "?"} — API key ${mrApiKey ? "set" : "not set"}.`;
+    }
   }
 
   function updateMrQueueButton() {

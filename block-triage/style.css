@@ -326,6 +326,10 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
   padding: 0.15rem 0.5rem;
 }
 
+#mr-setup-summary {
+  margin-bottom: calc(var(--space-scale) * 0.4rem);
+}
+
 #stats {
   font-size: 0.85rem;
   line-height: 1.5;
