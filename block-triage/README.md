@@ -490,9 +490,9 @@ island, there's no building going there." Both pages also have an
 **Oakville addresses (skfd)** overlay (an OSM community address layer for
 Oakville, https://skfd.github.io/oakville-address-layer/ - off by default,
 specific to that one town) and a **Reference layer** entry - see below.
-All three tile layers let you zoom one level past their native tile
-resolution (the last tile is upscaled rather than disappearing), since
-the address labels in particular are still small at native resolution.
+The Oakville address layer renders its tiles roughly 2x larger than the
+other layers (via `tileSize`/`zoomOffset`, not by letting you zoom in any
+farther) so its address numbers are actually readable at a normal zoom.
 
 ## Reference layer
 

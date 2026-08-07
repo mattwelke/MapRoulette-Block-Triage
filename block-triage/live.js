@@ -285,25 +285,24 @@
   /** @type {null | {phase: "selecting"|"drawing", selectedIds: Set<string>|null, originalSnapshots: object[], newSnapshots: object[]}} */
   let replaceState = null;
 
-  // maxZoom is one past maxNativeZoom on every layer below - none of these
-  // tile sources render anything past native zoom 20, but Leaflet upscales
-  // the deepest available tile rather than hiding the layer for zooms up to
-  // maxZoom, so the Oakville address labels (the tightest-to-read layer of
-  // the three) stay visible and larger one level deeper than before instead
-  // of just vanishing.
-  const map = L.map("map", { preferCanvas: true, maxZoom: 21 }).setView([43.45, -79.68], 12);
+  const map = L.map("map", { preferCanvas: true }).setView([43.45, -79.68], 12);
   const osm = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
-    maxZoom: 21,
-    maxNativeZoom: 20,
+    maxZoom: 20,
     attribution: "&copy; OpenStreetMap contributors",
   }).addTo(map);
   const esriImagery = L.tileLayer(
     "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-    { maxZoom: 21, maxNativeZoom: 20, attribution: "Tiles &copy; Esri" }
+    { maxZoom: 20, attribution: "Tiles &copy; Esri" }
   );
+  // tileSize/zoomOffset render this layer one zoom level "behind" and
+  // stretched to fill the cell a native tile would - at any given map zoom,
+  // Leaflet fetches the (less detailed, but already-available) z-1 tile and
+  // scales it up 2x rather than the native z tile, so the address numbers
+  // come out roughly twice as large without letting you navigate any
+  // deeper than before (maxZoom is unchanged, matching the other layers).
   const oakvilleAddresses = L.tileLayer(
     "https://skfd.github.io/oakville-address-layer/tiles/raster/{z}/{x}/{y}.png",
-    { maxZoom: 21, maxNativeZoom: 20, attribution: "Oakville address layer by skfd" }
+    { maxZoom: 20, tileSize: 512, zoomOffset: -1, attribution: "Oakville address layer by skfd" }
   );
   // Purely visual: holds whatever the user loads via "Load reference layer...".
   // Never interactive, never part of entries/undo - just context to look at
