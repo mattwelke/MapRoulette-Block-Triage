@@ -484,9 +484,14 @@ area opens the usual Leaflet popup right at the tapped spot.
 ## Basemaps
 
 The layer switcher (top-right of the map) toggles between standard
-OpenStreetMap tiles and Esri World Imagery (aerial photos) — the aerial
-view is often the fastest way to visually confirm "yep, that's a traffic
-island, there's no building going there." Both pages also have an
+OpenStreetMap tiles, Esri World Imagery, and Ontario's own current aerial
+imagery (**Aerial (Ontario 2023-2027)**, served via WMS from Ontario's
+Geospatial GeoHub - the province's most recent orthophotography
+acquisition cycle, generally sharper than Esri's over Ontario, though it's
+labelled a beta service on their end and could change or move without
+notice). The aerial views are often the fastest way to visually confirm
+"yep, that's a traffic island, there's no building going there." Both
+pages also have an
 **Oakville addresses (skfd)** overlay (an OSM community address layer for
 Oakville, https://skfd.github.io/oakville-address-layer/ - off by default,
 specific to that one town) and a **Reference layer** entry - see below.

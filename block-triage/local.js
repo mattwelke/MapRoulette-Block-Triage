@@ -48,6 +48,22 @@
     "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
     { maxZoom: 20, attribution: "Tiles &copy; Esri" }
   );
+  // Ontario's own current (2023-2027 acquisition cycle) aerial imagery, via
+  // GeoHub's WMS - "GEO_Imagery_Data_Service_2023to2027:None" is the merged
+  // mosaic layer (auto-picks whichever project/acquisition covers a given
+  // spot), not one specific sub-project, so it has no coverage gaps within
+  // the service's extent. Marked "BETA VERSION OF IMAGE SERVICE" by Ontario
+  // as of this writing - could change or move without notice.
+  const ontarioImagery2023 = L.tileLayer.wms(
+    "https://ws.geoservices.lrc.gov.on.ca/arcgis5/services/AerialImagery/GEO_Imagery_Data_Service_2023to2027/ImageServer/WMSServer",
+    {
+      layers: "GEO_Imagery_Data_Service_2023to2027:None",
+      format: "image/png",
+      version: "1.3.0",
+      maxZoom: 20,
+      attribution: "Imagery: Geospatial Ontario, Ministry of Natural Resources (GEO Imagery Data Service, 2023-2027)",
+    }
+  );
   // tileSize/zoomOffset render this layer one zoom level "behind" and
   // stretched to fill the cell a native tile would - at any given map zoom,
   // Leaflet fetches the (less detailed, but already-available) z-1 tile and
@@ -64,7 +80,7 @@
   const referenceLayerGroup = L.layerGroup();
   L.control
     .layers(
-      { "OpenStreetMap": osm, "Aerial (Esri)": esriImagery },
+      { "OpenStreetMap": osm, "Aerial (Esri)": esriImagery, "Aerial (Ontario 2023-2027)": ontarioImagery2023 },
       { "Oakville addresses (skfd)": oakvilleAddresses, "Reference layer": referenceLayerGroup }
     )
     .addTo(map);
