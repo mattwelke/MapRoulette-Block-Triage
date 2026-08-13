@@ -165,9 +165,9 @@
   // The reverse of the above - "Mark as Completeable" undoes a Too_Hard
   // mark once whatever blocked it is fixed (e.g. the Oakville address
   // layer's missing unit numbers), putting the task back to a normal,
-  // workable state.
+  // workable state. Not a status code/PUT like COULD_NOT_COMPLETE_STATUS_CODE
+  // above - see processMrMarkCompleteableQueue for why.
   const MARK_COMPLETEABLE_STATUS_NAME = "Created";
-  const MARK_COMPLETEABLE_STATUS_CODE = 0;
 
   const MR_API_BASE = "https://maproulette.org/api/v2";
   let mrApiKey = localStorage.getItem("block-triage:mrApiKey") || "";
@@ -1090,9 +1090,16 @@
     updateProcessAllButton();
   }
 
-  // The reverse of processMrCouldNotCompleteQueue - sets every queued area's
-  // MapRoulette task back to Created, one at a time, undoing a previous
-  // Could Not Complete mark now that whatever blocked it is fixed.
+  // The reverse of processMrCouldNotCompleteQueue - undoes a previous Could
+  // Not Complete mark now that whatever blocked it is fixed, one area at a
+  // time. This can't be a plain status PUT like the other direction is:
+  // MapRoulette's server enforces a status *transition* rule
+  // (Task.isValidStatusProgression in maproulette-backend's Task.scala -
+  // see scripts/set_task_status.py's module docstring for the full table)
+  // that only allows resetting a task to Created from Deleted or Disabled,
+  // not from Too_Hard directly. So this deletes the old Too_Hard task and
+  // creates a fresh one for the same geometry instead - a real Created
+  // task, not a status-only fake, but a new MapRoulette task id.
   async function processMrMarkCompleteableQueue() {
     const ids = Array.from(mrMarkCompleteableQueue);
     if (ids.length === 0) return;
@@ -1120,14 +1127,35 @@
       }
 
       mrMarkCompleteableQueueStatusEl.textContent = `Marking task ${entry.mrTaskId}… (${done} of ${ids.length} done so far)`;
+      const oldTaskId = entry.mrTaskId;
       try {
-        await mrSetTaskStatus(entry.mrTaskId, MARK_COMPLETEABLE_STATUS_CODE);
+        await mrDeleteTask(oldTaskId);
+      } catch (err) {
+        // Delete never went through - nothing changed remotely, so it's
+        // safe to just retry the whole thing next pass.
+        failed++;
+        mrMarkCompleteableQueue.add(id);
+        entry.layer.setStyle(styleFor(entry));
+        done++;
+        renderList();
+        return;
+      }
+      try {
+        const created = await mrCreateTask(entry.feature);
+        entry.mrTaskId = created.id;
         entry.mrTaskStatus = MARK_COMPLETEABLE_STATUS_NAME;
         entry.layer.setStyle(styleFor(entry));
       } catch (err) {
+        // The old task is already gone regardless - queue this area for
+        // adding instead (same recovery syncReplaceToMapRoulette uses for
+        // an analogous delete-succeeded-but-create-failed case), rather
+        // than leaving it silently unlinked.
         failed++;
-        mrMarkCompleteableQueue.add(id); // retries here are already exhausted - stays queued for the next pass
+        entry.mrTaskId = null;
+        entry.mrTaskStatus = null;
+        mrAddQueue.add(id);
         entry.layer.setStyle(styleFor(entry));
+        updateMrAddQueueButton();
       }
       done++;
       renderList();
@@ -1139,7 +1167,7 @@
     mrMarkCompleteableQueueStatusEl.textContent =
       failed === 0 && skippedLocked === 0
         ? `Done — marked ${marked} task${marked === 1 ? "" : "s"} as completeable again.`
-        : `Done — ${parts.join(", ")}; anything that failed is still queued to retry next time you process this queue.`;
+        : `Done — ${parts.join(", ")}; anything that failed is still queued to retry (or was moved to the add queue) next time.`;
     updateMrMarkCompleteableQueueButton();
   }
 

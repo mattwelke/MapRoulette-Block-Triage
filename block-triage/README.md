@@ -197,9 +197,10 @@ below) to set it directly, without splitting - useful the first time you
 notice the problem, before you've decided whether/how to split it. Once
 whatever was blocking it is fixed (e.g. the Oakville address layer gets
 its missing unit numbers added), an area already in this state instead
-gets a **Mark as Completeable** button - the reverse, setting its status
-back to `Created` so it's workable again. Like every other action here
-that changes something on MapRoulette, both queue the change rather than
+gets a **Mark as Completeable** button - the reverse, making it workable
+again (see "Marking Completeable" below for why this recreates the task
+rather than just changing its status). Like every other action here that
+changes something on MapRoulette, both queue the change rather than
 applying it right away - see "Per-area actions" below. See "Splitting"
 below for how this status carries through a split, including marking new
 pieces the same way.
@@ -239,9 +240,15 @@ starts immediately, with no confirmation prompts along the way.
   create/delete involved.
 - **Marking Completeable**: the reverse — a Could Not Complete area's
   popup instead offers **Mark as Completeable**, which queues (green
-  dashed outline) reverting its status back to `Created`. **Process
-  completeable queue N** applies it the same way, one status call per
-  area, no create/delete involved.
+  dashed outline) undoing that. Unlike the other direction, this *does*
+  involve create/delete: MapRoulette's own server rejects a direct
+  `Too_Hard` → `Created` status change (its status-transition rule only
+  allows resetting to `Created` from `Deleted`/`Disabled`), so **Process
+  completeable queue N** deletes the old task and creates a fresh one for
+  the same geometry instead — a new MapRoulette task id for that area,
+  genuinely `Created`, not just a status relabel. If the delete succeeds
+  but the create fails, the area is queued into the **add** queue instead
+  of being left silently unlinked.
 
 In every case, whatever succeeds disappears from (or appears in) the map,
 the list, and the stats immediately. Every MapRoulette request is itself
