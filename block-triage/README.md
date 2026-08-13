@@ -194,11 +194,16 @@ layer is missing unit numbers for part of it and a mapper might be able to
 complete a subset. A linked area not already in this state gets a **Mark
 as Could Not Complete** button in its popup (alongside "Per-area actions"
 below) to set it directly, without splitting - useful the first time you
-notice the problem, before you've decided whether/how to split it. Like
-every other action here that changes something on MapRoulette, this
-queues the change rather than applying it right away - see "Per-area
-actions" below. See "Splitting" below for how this status carries through
-a split, including marking new pieces the same way.
+notice the problem, before you've decided whether/how to split it. Once
+whatever was blocking it is fixed (e.g. the Oakville address layer gets
+its missing unit numbers added), an area already in this state instead
+gets a **Mark as Completeable** button - the reverse, making it workable
+again (see "Marking Completeable" below for why this recreates the task
+rather than just changing its status). Like every other action here that
+changes something on MapRoulette, both queue the change rather than
+applying it right away - see "Per-area actions" below. See "Splitting"
+below for how this status carries through a split, including marking new
+pieces the same way.
 
 **Per-area actions** (in the popup, alongside Split): for a linked area
 (one with a MapRoulette task, loaded or already added), a button reading
@@ -212,10 +217,10 @@ Both directions work as queues rather than immediate actions, for the same
 reason: MapRoulette's task endpoints can be slow, and doing a whole batch
 one popup at a time, waiting on each request, isn't a great way to work.
 **Process all pending N** (near the top of the MapRoulette panel) runs
-every queue below - add, delete, could-not-complete, boundary-edit,
-split, replace, combine - one after another in a single click, so you
-don't have to hunt down each queue's own button; processing starts
-immediately, with no confirmation prompts along the way.
+every queue below - add, delete, could-not-complete, completeable,
+boundary-edit, split, replace, combine - one after another in a single
+click, so you don't have to hunt down each queue's own button; processing
+starts immediately, with no confirmation prompts along the way.
 
 - **Adding**: every new, unlinked area (drawn, split, or combined) is
   automatically queued to be added — it shows a green dashed outline on the
@@ -233,6 +238,17 @@ immediately, with no confirmation prompts along the way.
   queues the status change (teal dashed outline) until you click **Process
   could-not-complete queue N**, which sets each one's status directly, no
   create/delete involved.
+- **Marking Completeable**: the reverse — a Could Not Complete area's
+  popup instead offers **Mark as Completeable**, which queues (green
+  dashed outline) undoing that. Unlike the other direction, this *does*
+  involve create/delete: MapRoulette's own server rejects a direct
+  `Too_Hard` → `Created` status change (its status-transition rule only
+  allows resetting to `Created` from `Deleted`/`Disabled`), so **Process
+  completeable queue N** deletes the old task and creates a fresh one for
+  the same geometry instead — a new MapRoulette task id for that area,
+  genuinely `Created`, not just a status relabel. If the delete succeeds
+  but the create fails, the area is queued into the **add** queue instead
+  of being left silently unlinked.
 
 In every case, whatever succeeds disappears from (or appears in) the map,
 the list, and the stats immediately. Every MapRoulette request is itself

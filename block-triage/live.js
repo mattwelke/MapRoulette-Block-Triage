@@ -162,6 +162,12 @@
   // stay Too_Hard, and the rest come out as normal newly-created tasks.
   const COULD_NOT_COMPLETE_STATUS_NAME = "Too_Hard";
   const COULD_NOT_COMPLETE_STATUS_CODE = 6;
+  // The reverse of the above - "Mark as Completeable" undoes a Too_Hard
+  // mark once whatever blocked it is fixed (e.g. the Oakville address
+  // layer's missing unit numbers), putting the task back to a normal,
+  // workable state. Not a status code/PUT like COULD_NOT_COMPLETE_STATUS_CODE
+  // above - see processMrMarkCompleteableQueue for why.
+  const MARK_COMPLETEABLE_STATUS_NAME = "Created";
 
   const MR_API_BASE = "https://maproulette.org/api/v2";
   let mrApiKey = localStorage.getItem("block-triage:mrApiKey") || "";
@@ -233,6 +239,12 @@
   // existing mrTaskId - there's nothing to mark until a task exists.
   /** @type {Set<string>} */
   let mrCouldNotCompleteQueue = new Set();
+  // Entry ids queued to have their MapRoulette task un-marked from Could Not
+  // Complete back to Created - the reverse of mrCouldNotCompleteQueue above,
+  // for when whatever blocked completion earlier has since been fixed. Only
+  // ever entries currently Too_Hard.
+  /** @type {Set<string>} */
+  let mrMarkCompleteableQueue = new Set();
   let mrQuickQueueDeleteMode = localStorage.getItem("block-triage:mrQuickQueueDeleteMode") === "true";
 
   // Runs `worker` over every item in `items` one at a time, in order - every
@@ -560,6 +572,8 @@
   const mrOrphanedDeleteQueueStatusEl = document.getElementById("mr-orphaned-delete-queue-status");
   const mrCouldNotCompleteQueueBtn = document.getElementById("mr-could-not-complete-queue-btn");
   const mrCouldNotCompleteQueueStatusEl = document.getElementById("mr-could-not-complete-queue-status");
+  const mrMarkCompleteableQueueBtn = document.getElementById("mr-mark-completeable-queue-btn");
+  const mrMarkCompleteableQueueStatusEl = document.getElementById("mr-mark-completeable-queue-status");
   const mrProcessAllBtn = document.getElementById("mr-process-all-btn");
   const mrProcessAllStatusEl = document.getElementById("mr-process-all-status");
   const mrQuickQueueCheckbox = document.getElementById("mr-quick-queue-checkbox");
@@ -579,6 +593,7 @@
   updateReplaceQueueButton();
   updateCombineQueueButton();
   updateOrphanedDeleteQueueButton();
+  updateMrMarkCompleteableQueueButton();
   scheduleMrLockPoll();
   mrQueueBtn.addEventListener("click", processMrDeleteQueue);
   mrAddQueueBtn.addEventListener("click", processMrAddQueue);
@@ -588,6 +603,7 @@
   mrCombineQueueBtn.addEventListener("click", processCombineQueue);
   mrOrphanedDeleteQueueBtn.addEventListener("click", processOrphanedDeleteQueue);
   mrCouldNotCompleteQueueBtn.addEventListener("click", processMrCouldNotCompleteQueue);
+  mrMarkCompleteableQueueBtn.addEventListener("click", processMrMarkCompleteableQueue);
   mrProcessAllBtn.addEventListener("click", processAllQueues);
 
   mrApiKeyInput.addEventListener("change", () => {
@@ -839,9 +855,9 @@
   }
 
   // Reflects the combined size of every queue - add/delete/edit/split/
-  // replace/combine/orphaned-deletes/could-not-complete - so "Process all
-  // pending" can be clicked once instead of hunting down each queue's own
-  // button individually.
+  // replace/combine/orphaned-deletes/could-not-complete/mark-completeable -
+  // so "Process all pending" can be clicked once instead of hunting down
+  // each queue's own button individually.
   function updateProcessAllButton() {
     const total =
       mrDeleteQueue.size +
@@ -851,7 +867,8 @@
       replaceQueue.size +
       combineQueue.size +
       mrOrphanedDeleteQueue.size +
-      mrCouldNotCompleteQueue.size;
+      mrCouldNotCompleteQueue.size +
+      mrMarkCompleteableQueue.size;
     mrProcessAllBtn.textContent = `Process all pending (${total})`;
     mrProcessAllBtn.disabled = total === 0;
   }
@@ -869,6 +886,7 @@
     await processMrAddQueue();
     await processMrDeleteQueue();
     await processMrCouldNotCompleteQueue();
+    await processMrMarkCompleteableQueue();
     await processMrEditQueue();
     await processSplitQueue();
     await processReplaceQueue();
@@ -1064,6 +1082,93 @@
         ? `Done — marked ${marked} task${marked === 1 ? "" : "s"} as Could Not Complete.`
         : `Done — ${parts.join(", ")}; anything that failed is still queued to retry next time you process this queue.`;
     updateMrCouldNotCompleteQueueButton();
+  }
+
+  function updateMrMarkCompleteableQueueButton() {
+    mrMarkCompleteableQueueBtn.textContent = `Process completeable queue (${mrMarkCompleteableQueue.size})`;
+    mrMarkCompleteableQueueBtn.disabled = mrMarkCompleteableQueue.size === 0;
+    updateProcessAllButton();
+  }
+
+  // The reverse of processMrCouldNotCompleteQueue - undoes a previous Could
+  // Not Complete mark now that whatever blocked it is fixed, one area at a
+  // time. This can't be a plain status PUT like the other direction is:
+  // MapRoulette's server enforces a status *transition* rule
+  // (Task.isValidStatusProgression in maproulette-backend's Task.scala -
+  // see scripts/set_task_status.py's module docstring for the full table)
+  // that only allows resetting a task to Created from Deleted or Disabled,
+  // not from Too_Hard directly. So this deletes the old Too_Hard task and
+  // creates a fresh one for the same geometry instead - a real Created
+  // task, not a status-only fake, but a new MapRoulette task id.
+  async function processMrMarkCompleteableQueue() {
+    const ids = Array.from(mrMarkCompleteableQueue);
+    if (ids.length === 0) return;
+
+    mrMarkCompleteableQueueBtn.disabled = true;
+    let done = 0;
+    let failed = 0;
+    let skippedLocked = 0;
+    await runSequentially(ids, async (id) => {
+      mrMarkCompleteableQueue.delete(id);
+      const entry = entries.get(id);
+      if (!entry || !entry.mrTaskId || entry.mrTaskStatus !== COULD_NOT_COMPLETE_STATUS_NAME) {
+        done++;
+        return; // already gone, unlinked, or no longer Could Not Complete by some other means in the meantime
+      }
+
+      const blockReason = mrBlockReason(entry);
+      if (blockReason) {
+        done++;
+        skippedLocked++;
+        mrMarkCompleteableQueueStatusEl.textContent = `Skipped task ${entry.mrTaskId} (${done} of ${ids.length}): ${blockReason}.`;
+        entry.layer.setStyle(styleFor(entry)); // drop the "queued" look, it's back to just linked
+        renderList();
+        return;
+      }
+
+      mrMarkCompleteableQueueStatusEl.textContent = `Marking task ${entry.mrTaskId}… (${done} of ${ids.length} done so far)`;
+      const oldTaskId = entry.mrTaskId;
+      try {
+        await mrDeleteTask(oldTaskId);
+      } catch (err) {
+        // Delete never went through - nothing changed remotely, so it's
+        // safe to just retry the whole thing next pass.
+        failed++;
+        mrMarkCompleteableQueue.add(id);
+        entry.layer.setStyle(styleFor(entry));
+        done++;
+        renderList();
+        return;
+      }
+      try {
+        const created = await mrCreateTask(entry.feature);
+        entry.mrTaskId = created.id;
+        entry.mrTaskStatus = MARK_COMPLETEABLE_STATUS_NAME;
+        entry.layer.setStyle(styleFor(entry));
+      } catch (err) {
+        // The old task is already gone regardless - queue this area for
+        // adding instead (same recovery syncReplaceToMapRoulette uses for
+        // an analogous delete-succeeded-but-create-failed case), rather
+        // than leaving it silently unlinked.
+        failed++;
+        entry.mrTaskId = null;
+        entry.mrTaskStatus = null;
+        mrAddQueue.add(id);
+        entry.layer.setStyle(styleFor(entry));
+        updateMrAddQueueButton();
+      }
+      done++;
+      renderList();
+    });
+    const marked = done - failed - skippedLocked;
+    const parts = [`marked ${marked} of ${done}`];
+    if (failed > 0) parts.push(`${failed} failed`);
+    if (skippedLocked > 0) parts.push(`${skippedLocked} skipped (now locked)`);
+    mrMarkCompleteableQueueStatusEl.textContent =
+      failed === 0 && skippedLocked === 0
+        ? `Done — marked ${marked} task${marked === 1 ? "" : "s"} as completeable again.`
+        : `Done — ${parts.join(", ")}; anything that failed is still queued to retry (or was moved to the add queue) next time.`;
+    updateMrMarkCompleteableQueueButton();
   }
 
   function updateMrEditQueueButton() {
@@ -1577,6 +1682,9 @@
     mrCouldNotCompleteQueue = new Set();
     updateMrCouldNotCompleteQueueButton();
     mrCouldNotCompleteQueueStatusEl.textContent = "";
+    mrMarkCompleteableQueue = new Set();
+    updateMrMarkCompleteableQueueButton();
+    mrMarkCompleteableQueueStatusEl.textContent = "";
     if (editState) cancelEditBoundary();
 
     parsed.features.forEach((feature, idx) => {
@@ -1671,6 +1779,9 @@
     }
     if (mrCouldNotCompleteQueue.has(entry.id)) {
       return { color: COLORS["could-not-complete"], weight: 4, dashArray: "2 4", fillColor: color, fillOpacity: 0.35 };
+    }
+    if (mrMarkCompleteableQueue.has(entry.id)) {
+      return { color: "#2e7d32", weight: 4, dashArray: "2 4", fillColor: color, fillOpacity: 0.35 };
     }
     const isSelected = entry.id === selectedId;
     return {
@@ -1814,6 +1925,11 @@
               ${
                 entry.mrTaskId && entry.mrTaskStatus !== COULD_NOT_COMPLETE_STATUS_NAME
                   ? `<button data-mark-could-not-complete>Mark as Could Not Complete</button>`
+                  : ""
+              }
+              ${
+                entry.mrTaskId && entry.mrTaskStatus === COULD_NOT_COMPLETE_STATUS_NAME
+                  ? `<button data-mark-completeable>Mark as Completeable</button>`
                   : ""
               }
             </div><div class="mr-inline-status" data-mr-status></div>`
@@ -1969,6 +2085,32 @@
         entry.layer.setStyle(styleFor(entry));
         updateMarkButton();
         updateMrCouldNotCompleteQueueButton();
+        renderList();
+      });
+    }
+
+    const markCompleteableBtn = div.querySelector("[data-mark-completeable]");
+    if (markCompleteableBtn) {
+      const updateCompleteableButton = () => {
+        markCompleteableBtn.textContent = mrMarkCompleteableQueue.has(entry.id) ? "Cancel pending mark" : "Mark as Completeable";
+      };
+      updateCompleteableButton();
+      markCompleteableBtn.addEventListener("click", () => {
+        // Queueing/dequeueing is fully reversible (nothing's changed on
+        // MapRoulette yet), same as the could-not-complete queue above -
+        // "Process completeable queue" in the sidebar is what actually
+        // applies it.
+        if (mrMarkCompleteableQueue.has(entry.id)) {
+          mrMarkCompleteableQueue.delete(entry.id);
+          mrStatusInline.textContent = "Removed from the completeable queue.";
+        } else {
+          mrMarkCompleteableQueue.add(entry.id);
+          mrStatusInline.textContent =
+            'Queued to be marked Completeable — use "Process completeable queue" in the sidebar to apply it.';
+        }
+        entry.layer.setStyle(styleFor(entry));
+        updateCompleteableButton();
+        updateMrMarkCompleteableQueueButton();
         renderList();
       });
     }
