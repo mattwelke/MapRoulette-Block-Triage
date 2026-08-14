@@ -193,6 +193,19 @@ async function loadLiveChallenge(page, challengeId, apiKey) {
   await page.waitForTimeout(200);
   await page.click("#mr-load-challenge-btn");
   await page.waitForTimeout(1500);
+  await expandLiveQueues(page);
+}
+
+// The individual queue sections are minimized by default (see
+// #mr-queues/#mr-queues-toggle-btn in live.js) - most tests need to interact
+// with a queue button directly, so expand it once up front rather than
+// making every test click "Show queues" itself.
+async function expandLiveQueues(page) {
+  const label = await page.$eval("#mr-queues-toggle-btn", (el) => el.textContent);
+  if (label.trim() === "Show queues") {
+    await page.click("#mr-queues-toggle-btn");
+    await page.waitForTimeout(100);
+  }
 }
 
 async function launch(opts) {
@@ -294,4 +307,5 @@ module.exports = {
   routeMrChallenge,
   routeAddressPoints,
   loadLiveChallenge,
+  expandLiveQueues,
 };

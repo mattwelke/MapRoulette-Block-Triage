@@ -147,6 +147,14 @@ automatically (leaving a one-line summary in their place) to free up
 sidebar space for the queues below — a **Hide setup** / **Show setup**
 button on the MapRoulette heading toggles it manually at any time.
 
+The individual queue sections (add, delete, boundary-edit, split, replace,
+combine, orphaned deletes, could-not-complete, completeable) are minimized
+by default too, behind a **Show queues** / **Hide queues** toggle just
+below **Process all pending** — that button already shows the total pending
+count without needing them expanded, so most day-to-day processing never
+needs the queues opened at all. Expand them when you want to check or
+process one queue individually.
+
 A persistent red **LIVE: editing MapRoulette challenge &lt;id&gt;** banner
 runs across the top of the page the whole time, so there's never any
 doubt that the actions here have real, remote consequences.

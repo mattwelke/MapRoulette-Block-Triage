@@ -1,4 +1,4 @@
-const { launch, assertNoPageErrors, liveUrl, assert, assertEqual, runTest } = require("./support");
+const { launch, assertNoPageErrors, liveUrl, assert, assertEqual, runTest, expandLiveQueues } = require("./support");
 
 function makeTask(id, status, lng, lat) {
   return {
@@ -103,6 +103,7 @@ runTest("mr-active-lock: tasks currently checked out on MapRoulette are locked, 
 
   await page.click("#mr-load-challenge-btn");
   await page.waitForTimeout(1500); // load-challenge's kickMrLockPoll fires an immediate lock refresh too
+  await expandLiveQueues(page);
 
   async function rowByIdx(n) {
     const rows = await page.$$(".feature-row");
