@@ -280,6 +280,11 @@
   let coloringMode = loadColoringMode();
   let targetAddressCount = loadTargetAddressCount();
   let addressCountBand = loadAddressCountBand();
+  // Which category() values are currently hidden from the map and sidebar
+  // list (see the "Hide" checkboxes) - a pure display filter, doesn't touch
+  // the underlying data or stats totals, and doesn't stop a hidden area's
+  // queued actions from still processing in the background.
+  let hiddenCategories = loadHiddenCategories();
   let newFeatureCounter = 0;
   let addedAreaCounter = 0;
   let undoStack = [];
@@ -712,8 +717,15 @@
     recomputeCategoriesAndRender();
   });
 
-  document.querySelectorAll('input[name="filter"]').forEach((el) => {
-    el.addEventListener("change", renderList);
+  document.querySelectorAll("[data-hide-category]").forEach((checkbox) => {
+    checkbox.checked = hiddenCategories.has(checkbox.dataset.hideCategory);
+    checkbox.addEventListener("change", () => {
+      const cat = checkbox.dataset.hideCategory;
+      if (checkbox.checked) hiddenCategories.add(cat);
+      else hiddenCategories.delete(cat);
+      saveHiddenCategories();
+      recomputeCategoriesAndRender();
+    });
   });
 
   document.addEventListener("keydown", (e) => {
@@ -798,6 +810,22 @@
 
   function saveColoringMode() {
     localStorage.setItem("block-triage:coloringMode", coloringMode);
+  }
+
+  function loadHiddenCategories() {
+    try {
+      const stored = JSON.parse(localStorage.getItem("block-triage:hiddenCategories") || "[]");
+      // COLORS (declared at the very top of the file) already lists exactly
+      // the six valid category() values - reusing its keys here avoids a
+      // second list to keep in sync.
+      return new Set(Array.isArray(stored) ? stored.filter((c) => Object.prototype.hasOwnProperty.call(COLORS, c)) : []);
+    } catch (err) {
+      return new Set();
+    }
+  }
+
+  function saveHiddenCategories() {
+    localStorage.setItem("block-triage:hiddenCategories", JSON.stringify([...hiddenCategories]));
   }
 
   function loadTargetAddressCount() {
@@ -1746,6 +1774,13 @@
 
   function styleFor(entry) {
     const cat = category(entry);
+    if (hiddenCategories.has(cat)) {
+      // Fully invisible rather than removed from the map - keeps every
+      // other call site (queue processing, popups, undo/redo) working
+      // exactly as it already does with this entry's layer, since hiding
+      // is purely a display filter, not a data change.
+      return { opacity: 0, fillOpacity: 0, weight: 0, dashArray: null };
+    }
     const color = COLORS[cat];
     if (entry.mrLocked) {
       return { color: "#616161", weight: 2, dashArray: null, fillColor: color, fillOpacity: 0.45 };
@@ -1816,6 +1851,10 @@
     // being consumed here as a selection/queue click — a cut line very often
     // needs to cross directly over other areas.
     layer.on("click", (e) => {
+      // Hidden areas are invisible but still technically on the map (see
+      // styleFor) - without this they'd still swallow clicks meant for
+      // whatever's visually underneath them.
+      if (hiddenCategories.has(category(entry))) return;
       if (drawState) {
         L.DomEvent.stopPropagation(e);
         onDrawMapClick(e);
@@ -3475,16 +3514,16 @@
   }
 
   function updateStats() {
-    let normal = 0, oversized = 0, undersized = 0;
+    let normal = 0, oversized = 0, undersized = 0, locked = 0, activeLock = 0, couldNotComplete = 0;
     entries.forEach((e) => {
-      // Mirrors category()'s own per-mode logic.
-      if (coloringMode === "addressCount") {
-        if (e.addressCount >= targetAddressCount + addressCountBand) oversized++;
-        else if (e.addressCount <= targetAddressCount - addressCountBand) undersized++;
-        else normal++;
-      } else if (e.area >= targetAreaLimit) oversized++;
-      else if (e.area <= targetAreaLimit * 0.5) undersized++;
-      else normal++;
+      switch (category(e)) {
+        case "normal": normal++; break;
+        case "oversized": oversized++; break;
+        case "undersized": undersized++; break;
+        case "locked": locked++; break;
+        case "active-lock": activeLock++; break;
+        case "could-not-complete": couldNotComplete++; break;
+      }
     });
     const total = entries.size;
     statsEl.innerHTML = `
@@ -3493,15 +3532,12 @@
       <div>Oversized (needs split): ${oversized}</div>
       <div>Undersized (needs combine): ${undersized}</div>
     `;
-    document.querySelector('[data-count="all"]').textContent = total;
     document.querySelector('[data-count="oversized"]').textContent = oversized;
     document.querySelector('[data-count="undersized"]').textContent = undersized;
     document.querySelector('[data-count="normal"]').textContent = normal;
-  }
-
-  function currentFilter() {
-    const checked = document.querySelector('input[name="filter"]:checked');
-    return checked ? checked.value : "all";
+    document.querySelector('[data-count="locked"]').textContent = locked;
+    document.querySelector('[data-count="active-lock"]').textContent = activeLock;
+    document.querySelector('[data-count="could-not-complete"]').textContent = couldNotComplete;
   }
 
   // The sort key follows the active coloring mode - e.g. in address-count
@@ -3512,13 +3548,8 @@
   }
 
   function filteredSortedIds() {
-    const filter = currentFilter();
     return orderedIds
-      .filter((id) => {
-        const e = entries.get(id);
-        if (filter === "all") return true;
-        return category(e) === filter;
-      })
+      .filter((id) => !hiddenCategories.has(category(entries.get(id))))
       .sort((a, b) => sortMetric(entries.get(a)) - sortMetric(entries.get(b)));
   }
 
