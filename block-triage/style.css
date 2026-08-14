@@ -330,6 +330,18 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
   margin-bottom: calc(var(--space-scale) * 0.4rem);
 }
 
+.mr-queues-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--on-surface-variant);
+  margin-bottom: calc(var(--space-scale) * 0.75rem);
+}
+
 #stats {
   font-size: 0.85rem;
   line-height: 1.5;

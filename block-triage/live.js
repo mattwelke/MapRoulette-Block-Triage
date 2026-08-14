@@ -176,6 +176,12 @@
   // session anyway (see loadChallengeFromMapRoulette), so there's nothing
   // meaningful to remember "collapsed" from until that happens again.
   let mrSetupCollapsed = false;
+  // The individual queue sections (add/delete/edit/split/replace/combine/
+  // orphaned-delete/could-not-complete/mark-completeable) are a lot of
+  // vertical space to show all the time - minimized by default, since
+  // "Process all pending" above already surfaces the total pending count
+  // without needing them expanded.
+  let mrQueuesCollapsed = true;
   /** @type {Set<string>} entry ids queued for MapRoulette task deletion, not yet actually deleted */
   let mrDeleteQueue = new Set();
   // Entry ids queued for MapRoulette task creation, not yet actually created.
@@ -559,6 +565,8 @@
   const mrSetupToggleBtn = document.getElementById("mr-setup-toggle-btn");
   const mrSetupEl = document.getElementById("mr-setup");
   const mrSetupSummaryEl = document.getElementById("mr-setup-summary");
+  const mrQueuesToggleBtn = document.getElementById("mr-queues-toggle-btn");
+  const mrQueuesEl = document.getElementById("mr-queues");
   const mrLockPollStatusEl = document.getElementById("mr-lock-poll-status");
   const mrLiveBannerChallenge = document.getElementById("mr-live-banner-challenge");
   const mrQueueBtn = document.getElementById("mr-queue-btn");
@@ -590,6 +598,11 @@
   mrSetupToggleBtn.addEventListener("click", () => {
     mrSetupCollapsed = !mrSetupCollapsed;
     updateMrSetupCollapse();
+  });
+  updateMrQueuesCollapse();
+  mrQueuesToggleBtn.addEventListener("click", () => {
+    mrQueuesCollapsed = !mrQueuesCollapsed;
+    updateMrQueuesCollapse();
   });
   updateMrQueueButton();
   updateMrAddQueueButton();
@@ -874,6 +887,11 @@
       mrSetupSummaryEl.textContent =
         mrLoadStatusEl.textContent || `Challenge ${mrChallengeId || "?"} — API key ${mrApiKey ? "set" : "not set"}.`;
     }
+  }
+
+  function updateMrQueuesCollapse() {
+    mrQueuesEl.hidden = mrQueuesCollapsed;
+    mrQueuesToggleBtn.textContent = mrQueuesCollapsed ? "Show queues" : "Hide queues";
   }
 
   function updateMrQueueButton() {

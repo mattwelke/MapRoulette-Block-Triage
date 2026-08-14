@@ -75,91 +75,97 @@
           <button id="mr-process-all-btn" disabled title="Processes every queue below (add, delete, boundary-edit, split), one after another - starts immediately, no confirmation prompts.">Process all pending (0)</button>
           <div id="mr-process-all-status" class="muted"></div>
           <hr>
-          <div class="muted">
-            New areas (drawn, split, or combined) are automatically queued
-            to be added as MapRoulette tasks - nothing is created until you
-            process the queue below, one at a time. Use "Add now" on
-            an area's popup to create it immediately instead.
+          <div class="mr-queues-heading">
+            Queues
+            <button id="mr-queues-toggle-btn" type="button" class="mr-setup-toggle" title="Show/hide the individual queue sections (add, delete, edit, split, replace, combine, orphaned deletes, could-not-complete, completeable)">Show queues</button>
           </div>
-          <button id="mr-add-queue-btn" disabled>Process add queue (0)</button>
-          <div id="mr-add-queue-status" class="muted"></div>
-          <hr>
-          <div class="muted">
-            "Remove task from challenge" queues the delete instead of
-            doing it right away — nothing is deleted until you process
-            the queue below, one at a time.
+          <div id="mr-queues">
+            <div class="muted">
+              New areas (drawn, split, or combined) are automatically queued
+              to be added as MapRoulette tasks - nothing is created until you
+              process the queue below, one at a time. Use "Add now" on
+              an area's popup to create it immediately instead.
+            </div>
+            <button id="mr-add-queue-btn" disabled>Process add queue (0)</button>
+            <div id="mr-add-queue-status" class="muted"></div>
+            <hr>
+            <div class="muted">
+              "Remove task from challenge" queues the delete instead of
+              doing it right away — nothing is deleted until you process
+              the queue below, one at a time.
+            </div>
+            <label id="mr-quick-queue-toggle" class="toggle-label" title="When on, clicking an area on the map (that's already linked to a MapRoulette task and isn't locked) queues or unqueues it for deletion instead of opening the review popup.">
+              <input type="checkbox" id="mr-quick-queue-checkbox">
+              Quick queue-delete mode (click map to queue for deletion)
+            </label>
+            <button id="mr-queue-btn" disabled>Process delete queue (0)</button>
+            <div id="mr-queue-status" class="muted"></div>
+            <hr>
+            <div class="muted">
+              Editing an area's boundary (via "Edit boundary…" on a linked
+              area's popup) queues the MapRoulette side of it too - the old
+              task gets deleted and a new one created with the edited shape,
+              once you process the queue below.
+            </div>
+            <button id="mr-edit-queue-btn" disabled>Process boundary-edit queue (0)</button>
+            <div id="mr-edit-queue-status" class="muted"></div>
+            <hr>
+            <div class="muted">
+              Splitting happens locally right away - the resulting pieces show
+              an orange dashed outline and can each be dropped ("Drop this
+              piece" in its popup, at least one must remain) until you process
+              the queue below, which syncs it to MapRoulette: deletes the old
+              task (if it was task-linked) and creates a new one for every
+              piece still standing, one split at a time.
+            </div>
+            <button id="mr-split-queue-btn" disabled>Process split queue (0)</button>
+            <div id="mr-split-queue-status" class="muted"></div>
+            <hr>
+            <div class="muted">
+              "Replace areas…" queues the swap instead of syncing it right
+              away - the replacement areas show a teal dashed outline until
+              you process the queue below, which deletes any linked
+              MapRoulette tasks for the areas you replaced and creates new
+              ones for the areas you drew instead, one group at a time.
+            </div>
+            <button id="mr-replace-queue-btn" disabled>Process replace queue (0)</button>
+            <div id="mr-replace-queue-status" class="muted"></div>
+            <hr>
+            <div class="muted">
+              "Combine areas…" merges locally right away - the merged area
+              shows a purple dashed outline until you process the queue below,
+              which deletes any linked MapRoulette tasks for the areas you
+              combined and creates a new one for the merged area.
+            </div>
+            <button id="mr-combine-queue-btn" disabled>Process combine queue (0)</button>
+            <div id="mr-combine-queue-status" class="muted"></div>
+            <hr>
+            <div class="muted">
+              If deleting a task ever fails even after a few automatic retries
+              (during a split, replace, or combine sync), it lands here instead
+              of just disappearing - a leftover task with nowhere else to
+              track it. Processing this queue keeps trying to delete them.
+            </div>
+            <button id="mr-orphaned-delete-queue-btn" disabled>Process orphaned deletes (0)</button>
+            <div id="mr-orphaned-delete-queue-status" class="muted"></div>
+            <hr>
+            <div class="muted">
+              "Mark as Could Not Complete" (on a linked area's popup) queues the
+              status change instead of applying it right away - nothing changes
+              on MapRoulette until you process the queue below.
+            </div>
+            <button id="mr-could-not-complete-queue-btn" disabled>Process could-not-complete queue (0)</button>
+            <div id="mr-could-not-complete-queue-status" class="muted"></div>
+            <hr>
+            <div class="muted">
+              "Mark as Completeable" (on a Could Not Complete area's popup) is
+              the reverse - queues reverting its status back to Created for
+              when whatever blocked it (e.g. missing address data) is fixed.
+              Nothing changes on MapRoulette until you process the queue below.
+            </div>
+            <button id="mr-mark-completeable-queue-btn" disabled>Process completeable queue (0)</button>
+            <div id="mr-mark-completeable-queue-status" class="muted"></div>
           </div>
-          <label id="mr-quick-queue-toggle" class="toggle-label" title="When on, clicking an area on the map (that's already linked to a MapRoulette task and isn't locked) queues or unqueues it for deletion instead of opening the review popup.">
-            <input type="checkbox" id="mr-quick-queue-checkbox">
-            Quick queue-delete mode (click map to queue for deletion)
-          </label>
-          <button id="mr-queue-btn" disabled>Process delete queue (0)</button>
-          <div id="mr-queue-status" class="muted"></div>
-          <hr>
-          <div class="muted">
-            Editing an area's boundary (via "Edit boundary…" on a linked
-            area's popup) queues the MapRoulette side of it too - the old
-            task gets deleted and a new one created with the edited shape,
-            once you process the queue below.
-          </div>
-          <button id="mr-edit-queue-btn" disabled>Process boundary-edit queue (0)</button>
-          <div id="mr-edit-queue-status" class="muted"></div>
-          <hr>
-          <div class="muted">
-            Splitting happens locally right away - the resulting pieces show
-            an orange dashed outline and can each be dropped ("Drop this
-            piece" in its popup, at least one must remain) until you process
-            the queue below, which syncs it to MapRoulette: deletes the old
-            task (if it was task-linked) and creates a new one for every
-            piece still standing, one split at a time.
-          </div>
-          <button id="mr-split-queue-btn" disabled>Process split queue (0)</button>
-          <div id="mr-split-queue-status" class="muted"></div>
-          <hr>
-          <div class="muted">
-            "Replace areas…" queues the swap instead of syncing it right
-            away - the replacement areas show a teal dashed outline until
-            you process the queue below, which deletes any linked
-            MapRoulette tasks for the areas you replaced and creates new
-            ones for the areas you drew instead, one group at a time.
-          </div>
-          <button id="mr-replace-queue-btn" disabled>Process replace queue (0)</button>
-          <div id="mr-replace-queue-status" class="muted"></div>
-          <hr>
-          <div class="muted">
-            "Combine areas…" merges locally right away - the merged area
-            shows a purple dashed outline until you process the queue below,
-            which deletes any linked MapRoulette tasks for the areas you
-            combined and creates a new one for the merged area.
-          </div>
-          <button id="mr-combine-queue-btn" disabled>Process combine queue (0)</button>
-          <div id="mr-combine-queue-status" class="muted"></div>
-          <hr>
-          <div class="muted">
-            If deleting a task ever fails even after a few automatic retries
-            (during a split, replace, or combine sync), it lands here instead
-            of just disappearing - a leftover task with nowhere else to
-            track it. Processing this queue keeps trying to delete them.
-          </div>
-          <button id="mr-orphaned-delete-queue-btn" disabled>Process orphaned deletes (0)</button>
-          <div id="mr-orphaned-delete-queue-status" class="muted"></div>
-          <hr>
-          <div class="muted">
-            "Mark as Could Not Complete" (on a linked area's popup) queues the
-            status change instead of applying it right away - nothing changes
-            on MapRoulette until you process the queue below.
-          </div>
-          <button id="mr-could-not-complete-queue-btn" disabled>Process could-not-complete queue (0)</button>
-          <div id="mr-could-not-complete-queue-status" class="muted"></div>
-          <hr>
-          <div class="muted">
-            "Mark as Completeable" (on a Could Not Complete area's popup) is
-            the reverse - queues reverting its status back to Created for
-            when whatever blocked it (e.g. missing address data) is fixed.
-            Nothing changes on MapRoulette until you process the queue below.
-          </div>
-          <button id="mr-mark-completeable-queue-btn" disabled>Process completeable queue (0)</button>
-          <div id="mr-mark-completeable-queue-status" class="muted"></div>
         </div>
 
         <div id="thresholds">
