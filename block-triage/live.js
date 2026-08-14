@@ -1109,6 +1109,7 @@
       failed === 0 && skippedLocked === 0
         ? `Done — marked ${marked} task${marked === 1 ? "" : "s"} as Could Not Complete.`
         : `Done — ${parts.join(", ")}; anything that failed is still queued to retry next time you process this queue.`;
+    updateStats();
     updateMrCouldNotCompleteQueueButton();
   }
 
@@ -1196,6 +1197,7 @@
       failed === 0 && skippedLocked === 0
         ? `Done — marked ${marked} task${marked === 1 ? "" : "s"} as completeable again.`
         : `Done — ${parts.join(", ")}; anything that failed is still queued to retry (or was moved to the add queue) next time.`;
+    updateStats();
     updateMrMarkCompleteableQueueButton();
   }
 
@@ -1515,7 +1517,10 @@
           changed = true;
         }
       });
-      if (changed) renderList();
+      if (changed) {
+        updateStats();
+        renderList();
+      }
 
       // Multiple things can independently trigger a refresh (a poll, a
       // recheck-before-delete, the challenge ID field's own change event

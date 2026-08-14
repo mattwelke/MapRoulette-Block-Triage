@@ -118,6 +118,11 @@ runTest("mark-completeable: Mark as Completeable queues the change instead of ap
     "Process completeable queue (0)",
     "the queue should be empty after processing"
   );
+  assertEqual(
+    await page.$eval('[data-count="could-not-complete"]', (el) => el.textContent),
+    "0",
+    "the could-not-complete count next to the Hide checkbox should drop once the area is completeable again, not stay stuck at its pre-processing value"
+  );
 
   // Re-open the popup - it should now offer Mark as Could Not Complete
   // again instead, since it's back to a normal workable state.

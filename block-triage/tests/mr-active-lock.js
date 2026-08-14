@@ -119,6 +119,11 @@ runTest("mr-active-lock: tasks currently checked out on MapRoulette are locked, 
   assert(!idx0Class.includes("active-lock"), "unlocked task should not show active-lock");
   assert(idx1Class.includes("active-lock"), "task locked by someone else should show active-lock");
   assert(idx2Class.includes("active-lock"), "task locked by the API key's own user should ALSO show active-lock");
+  assertEqual(
+    await page.$eval('[data-count="active-lock"]', (el) => el.textContent),
+    "2",
+    "the active-lock count next to the Hide checkbox should reflect both currently-checked-out tasks after the initial lock poll"
+  );
 
   await (await rowByIdx(1)).click();
   await page.waitForTimeout(300);
