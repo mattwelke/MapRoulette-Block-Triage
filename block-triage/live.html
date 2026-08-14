@@ -195,11 +195,13 @@
         </div>
 
         <div id="filters">
-          <h2>Show</h2>
-          <label><input type="radio" name="filter" value="all" checked> All (<span data-count="all">0</span>)</label>
-          <label><input type="radio" name="filter" value="oversized"> Oversized (<span data-count="oversized">0</span>)</label>
-          <label><input type="radio" name="filter" value="undersized"> Undersized (<span data-count="undersized">0</span>)</label>
-          <label><input type="radio" name="filter" value="normal"> Normal (<span data-count="normal">0</span>)</label>
+          <h2>Hide</h2>
+          <label><input type="checkbox" data-hide-category="normal"> Normal (<span data-count="normal">0</span>)</label>
+          <label><input type="checkbox" data-hide-category="oversized"> Oversized (<span data-count="oversized">0</span>)</label>
+          <label><input type="checkbox" data-hide-category="undersized"> Undersized (<span data-count="undersized">0</span>)</label>
+          <label><input type="checkbox" data-hide-category="locked"> Locked (<span data-count="locked">0</span>)</label>
+          <label><input type="checkbox" data-hide-category="active-lock"> Checked out (<span data-count="active-lock">0</span>)</label>
+          <label><input type="checkbox" data-hide-category="could-not-complete"> Could not complete (<span data-count="could-not-complete">0</span>)</label>
         </div>
 
         <div id="legend">

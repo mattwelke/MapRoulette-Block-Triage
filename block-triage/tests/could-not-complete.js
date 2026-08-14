@@ -217,6 +217,11 @@ runTest("could-not-complete: Mark as Could Not Complete queues the change instea
     "Process could-not-complete queue (0)",
     "the queue should be empty after processing"
   );
+  assertEqual(
+    await page.$eval('[data-count="could-not-complete"]', (el) => el.textContent),
+    "1",
+    "the could-not-complete count next to the Hide checkbox should reflect the area once the queue is processed, not stay stuck at its pre-processing value"
+  );
 
   // Re-open the popup - the button should be gone now that it's already marked.
   await clickRow(page, rows[0].id);

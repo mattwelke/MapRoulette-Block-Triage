@@ -205,6 +205,19 @@ applying it right away - see "Per-area actions" below. See "Splitting"
 below for how this status carries through a split, including marking new
 pieces the same way.
 
+**Hiding by classification.** The sidebar's **Hide** section lists all six
+classifications an area can fall into (normal, oversized, undersized,
+locked, checked out, could not complete — see "Size coloring" and "Could
+Not Complete highlighting" above, plus "Locked" below). Checking one hides
+every area currently in that state from both the map and the sidebar list;
+unchecking it brings them back. This is purely a display filter — hidden
+areas' data and any queued actions on them are untouched and still process
+normally in the background, they're just not shown while hidden. Since
+classification is re-evaluated live, an area can drop in or out of view
+as its status changes (e.g. splitting a hidden oversized area into two
+normal-sized pieces makes the pieces visible again, if "Normal" isn't also
+hidden). The checked set is remembered across reloads.
+
 **Per-area actions** (in the popup, alongside Split): for a linked area
 (one with a MapRoulette task, loaded or already added), a button reading
 **Remove task from challenge** or **Cancel pending removal**. For an
