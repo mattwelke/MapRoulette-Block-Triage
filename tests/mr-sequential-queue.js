@@ -41,9 +41,8 @@ runTest("mr-sequential-queue: processing a queue never has more than one MapRoul
 
   // Every DELETE takes a deliberate 300ms to resolve and tracks how many are
   // concurrently in flight - long enough to reliably catch an overlap if the
-  // app ever issues two at once, without depending on this app having any
-  // internal concurrency-tracking hook of its own (there's nothing left to
-  // hook into now that requests are just plain sequential loops).
+  // app ever issues two at once, without depending on any internal
+  // concurrency-tracking hook in the app.
   let inFlight = 0;
   let maxObservedInFlight = 0;
   await page.route(/https:\/\/maproulette\.org\/api\/v2\/task\/\d+$/, async (route) => {

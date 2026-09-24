@@ -276,7 +276,7 @@
   let entries = new Map();
   let orderedIds = []; // insertion order == original feature order
   let selectedId = null;
-  // Areas at least 2x this are "oversized" (a split candidate); areas at
+  // Areas at least this big are "oversized" (a split candidate); areas at
   // most half this are "undersized" (a combine candidate) - see category().
   let targetAreaLimit = loadTargetAreaLimit();
   // Which measure drives the oversized/undersized coloring - "area" (m²,
@@ -1141,8 +1141,7 @@
   // Not Complete mark now that whatever blocked it is fixed, one area at a
   // time. This can't be a plain status PUT like the other direction is:
   // MapRoulette's server enforces a status *transition* rule
-  // (Task.isValidStatusProgression in maproulette-backend's Task.scala -
-  // see scripts/set_task_status.py's module docstring for the full table)
+  // (Task.isValidStatusProgression in maproulette-backend's Task.scala)
   // that only allows resetting a task to Created from Deleted or Disabled,
   // not from Too_Hard directly. So this deletes the old Too_Hard task and
   // creates a fresh one for the same geometry instead - a real Created
@@ -2767,11 +2766,8 @@
     // Close gaps up to that size first: buffer each area out slightly,
     // union, then buffer the result back in by the same amount
     // ("morphological closing"). Areas that are genuinely far apart still
-    // won't bridge and correctly fail the parts.length check below - with
-    // map-feature snapping available for drawing new areas, shapes that
-    // should end up joined can just share an exact boundary point to begin
-    // with, so there's no need to bridge a real gap here instead of
-    // rejecting it.
+    // won't bridge and correctly fail the parts.length check below, so a
+    // real gap is rejected rather than bridged.
     const CLOSE_DISTANCE_KM = 0.001; // 1m — just past the split knife's ~0.5m radius
     let unionResult;
     try {

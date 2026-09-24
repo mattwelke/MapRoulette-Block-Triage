@@ -13,7 +13,7 @@ const {
 
 const TABLET_VIEWPORT = { width: 1024, height: 768 }; // landscape, touch
 // Wider than the app's old (now-removed) 1366px width cap - e.g. a 13"+
-// tablet like the Samsung Galaxy Tab S10 FE+ in landscape, whose CSS
+// tablet in landscape, whose CSS
 // viewport width exceeds older tablets like the 12.9" iPad Pro. Tablet mode
 // is now detected by touch capability rather than a width range specifically
 // so devices like this aren't excluded just for being physically larger.
@@ -99,8 +99,8 @@ runTest("tablet-panel: a normal (non-touch) viewport still gets an ordinary Leaf
 });
 
 runTest("tablet-panel: a large (13\"+) touch tablet still gets the fixed panel, not the desktop popup", async () => {
-  // Regression test for a real bug report: a Samsung Galaxy Tab S10 FE+
-  // (13.1") rendered in desktop style instead of tablet style, because
+  // Regression test for a real bug report: a 13" tablet rendered in
+  // desktop style instead of tablet style, because
   // tablet mode used to be a pure width range capped at 1366px (tuned to
   // the 12.9" iPad Pro) - a physically larger tablet's landscape CSS width
   // exceeded that cap and fell through to desktop styling. Detecting touch

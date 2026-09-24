@@ -1,11 +1,13 @@
 # Block Triage
 
-A small local web app for reviewing area polygons (e.g. the "blocks" you
+A small web app for reviewing area polygons (e.g. the "blocks" you
 generate before setting up a MapRoulette challenge) and finding the ones
 that have no real work to do — cul-de-sac islands, thin slivers between
 divided-highway carriageways, etc.
 
-It runs entirely in your browser. No build step, no server, no account.
+It runs entirely in your browser, with no server-side code. You can open the
+HTML files straight from disk, or host them as a static site (see
+Deploying).
 
 ## Which interface?
 
@@ -489,18 +491,16 @@ what was being attempted:
   piece is queued for adding. If *deleting* an original's task fails, there's
   no local area left to attach a retry to (the local change already
   happened), so the task's bare ID lands in a dedicated **orphaned
-  deletes** queue instead of just being reported and forgotten — this is
-  what used to cause old, "deleted" areas to silently reappear as
-  duplicates on a later reload. **Process orphaned deletes N** (in the
+  deletes** queue instead of just being reported and forgotten, so old,
+  "deleted" areas don't silently reappear as duplicates on a later reload. **Process orphaned deletes N** (in the
   MapRoulette panel) keeps retrying those.
 
 ## Tablets
 
-Both pages adapt on touch devices at least phone-plus-sized (detected via
-`(pointer: coarse) and (hover: none) and (min-width: 600px)`, not a width
-range with an upper cap - a fixed cap previously excluded large 13"+
-tablets like the Samsung Galaxy Tab S10 FE+, whose landscape CSS width
-exceeds smaller tablets like the 12.9" iPad Pro):
+Both pages adapt on touch devices at least phone-plus-sized, detected via
+`(pointer: coarse) and (hover: none) and (min-width: 600px)`. There's no
+upper width limit, so large 13"+ tablets get tablet mode too, even though
+their landscape CSS width is wider than a 12.9" iPad Pro's:
 
 - **Bigger text.** Every piece of text in the app is sized in `rem`, so a
   single bump to the root font size at that width scales everything at
@@ -581,22 +581,6 @@ whose bounding boxes overlap at all, which keeps it fast even with
 thousands of areas loaded, since most of them aren't anywhere near each
 other.
 
-## Removed: low density exemption
-
-`local.html` and `live.html` used to have a **Low density (exempt from
-...)** checkbox on each area's popup, letting you mark an area as exempt
-from the small-area/undersized part of whichever flagging rule applied -
-for areas that are legitimately small (or large) because the underlying
-density is low, not because anything's wrong with the boundary. It's been
-removed from the UI now that `live.html`'s address-count coloring mode
-gives a more direct way to gauge density than area alone.
-
-Any live MapRoulette tasks still carrying the old
-`_blockTriageLowDensity: true` property from before the removal aren't
-affected by anything in the app anymore, but `scripts/clear_low_density.py`
-is kept around as a standalone (non-front-end) cleanup script for clearing
-that leftover property - see its own docstring for usage.
-
 ## Why compactness, not just area
 
 Some artifacts (thin slivers between the two carriageways of a divided
@@ -651,7 +635,7 @@ Chromium binary and any outbound-proxy requirement are specific to your
 machine, not something the repo should hardcode:
 - `PW_EXECUTABLE_PATH` — path to a Chromium binary (omit to use
   Playwright's own bundled browser, which `npm install` downloads for you)
-- `PW_PROXY_SERVER` — e.g. `http://127.0.0.1:33007`, if your network needs
+- `PW_PROXY_SERVER` — e.g. `http://127.0.0.1:8080`, if your network needs
   one (omit otherwise)
 
 MapRoulette-facing tests never talk to the real API — they use
@@ -667,7 +651,8 @@ The app has no real build step (it's vanilla HTML/JS/CSS with vendored
 dependencies), but Netlify still wants a build command and a publish
 directory, so `build.js` fills that role — it just copies everything the
 site needs (`index.html`, `local.html`/`local.js`, `live.html`/`live.js`,
-`style.css`, `vendor/`, `sample-data/`, `README.md`) into `dist/`, leaving
+`style.css`, `manifest.json`, `icons/`, `vendor/`, `sample-data/`, `data/`,
+`README.md`) into `dist/`, leaving
 dev-only files (`tests/`, `node_modules/`, `build.js`/`package.json`
 themselves) out:
 

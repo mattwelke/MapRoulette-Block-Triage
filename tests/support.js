@@ -7,10 +7,10 @@
 //
 // Browser launch is configurable via environment variables since the exact
 // Chromium path and any outbound-proxy requirement are specific to whatever
-// machine/sandbox is running the tests, not something this repo should hardcode:
+// machine is running the tests, not something this repo should hardcode:
 //   PW_EXECUTABLE_PATH - path to a Chromium binary (falls back to Playwright's
 //                        own bundled browser if unset)
-//   PW_PROXY_SERVER    - e.g. "http://127.0.0.1:33007" (no proxy if unset)
+//   PW_PROXY_SERVER    - e.g. "http://127.0.0.1:8080" (no proxy if unset)
 
 const path = require("path");
 const os = require("os");

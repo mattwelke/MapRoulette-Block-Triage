@@ -37,13 +37,8 @@ recreates a task for any edit, including this property, since it usually
 also needs to change geometry) this uses a real in-place update so a
 task's review/completion status and history aren't disturbed.
 
-NOTE: this script's use of PUT /task/{id} for an in-place update hasn't
-been verified against MapRoulette's live API from the environment this was
-written in (no outbound access to maproulette.org's docs there) - it's the
-standard REST shape for this API, but the very first --apply run against a
-real challenge is worth watching closely (or trying on a small/test
-challenge first). A dry run never touches the API's write endpoints, only
-the read-only tasks listing.
+Runs are dry runs unless --apply is given. A dry run never touches the
+API's write endpoints, only the read-only tasks listing.
 """
 
 import argparse

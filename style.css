@@ -13,8 +13,8 @@
    m3-tokens.css sets `color-scheme: light dark` and uses the CSS
    light-dark() function throughout, so its tokens would otherwise switch
    to dark values automatically under a dark OS/browser preference - this
-   app doesn't have a dark theme (an earlier attempt at one was reverted),
-   so color-scheme is pinned to light-only here to keep that off.
+   app doesn't have a dark theme, so color-scheme is pinned to light-only
+   here to keep that off.
    ============================================================================ */
 :root {
   color-scheme: light;
@@ -112,7 +112,7 @@ input[type="password"] {
    finger rather than a mouse/trackpad) at least phone-plus-sized. Detecting
    by touch capability rather than a width range means this doesn't need
    updating every time a new, larger tablet ships - a fixed max-width here
-   previously excluded 13"+ tablets (e.g. Samsung Galaxy Tab S10 FE+) whose
+   previously excluded 13"+ tablets whose
    CSS viewport width in landscape exceeds older tablets like the 12.9"
    iPad Pro. Every text size elsewhere in this file is set in rem, so
    bumping the root size here scales all of it proportionally at once. */
