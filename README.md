@@ -675,13 +675,11 @@ themselves) out:
 npm run build   # writes dist/
 ```
 
-**Netlify via GitHub (CI/CD):** this repo is a monorepo (this app lives in
-the `block-triage/` subdirectory), so a `netlify.toml` at the repo root
+**Netlify via GitHub (CI/CD):** a `netlify.toml` at the repo root
 tells Netlify everything it needs:
 
 ```toml
 [build]
-  base = "block-triage"
   command = "npm run build"
   publish = "dist"
 ```
@@ -689,9 +687,8 @@ tells Netlify everything it needs:
 Connecting the GitHub repo to a new Netlify site should pick this up
 automatically — every push to the connected branch rebuilds and redeploys.
 If you'd rather configure it by hand in Netlify's UI instead of relying on
-the toml file, the equivalent settings are: **Base directory** =
-`block-triage`, **Build command** = `npm run build`, **Publish directory**
-= `dist` (relative to the base directory).
+the toml file, the equivalent settings are: **Base directory** left
+empty, **Build command** = `npm run build`, **Publish directory** = `dist`.
 
 Netlify's build environment also gets `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1`
 (set in `netlify.toml`) so its automatic `npm install` step doesn't waste

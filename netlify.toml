@@ -1,5 +1,4 @@
 [build]
-  base = "block-triage"
   command = "npm run build"
   publish = "dist"
 
